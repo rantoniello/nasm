@@ -9,7 +9,8 @@ prefix		= /usr/local
 exec_prefix	= ${prefix}
 bindir		= ${exec_prefix}/bin
 mandir		= ${datarootdir}/man
-docdir		= $(prefix)/doc/nasm
+docdir		= ${datarootdir}/doc/${PACKAGE}
+htmldir		= ${docdir}
 infodir		= ${datarootdir}/info
 datarootdir	= ${prefix}/share
 
@@ -21,6 +22,7 @@ PERL		= perl -I$(srcdir)
 
 PDFOPT		= 
 
+MKDIR		= mkdir
 RM_F		= rm -f
 RM_RF		= rm -rf
 CP_F		= cp -f
@@ -32,6 +34,7 @@ HTMLAUX		= nasmdoc.css local.css nasmlogw.png
 SRCS		= nasmdoc.src inslist.src changes.src version.src
 OUT		= html nasmdoc.txt nasmdoc.pdf
 
+.SUFFIXES:
 .SUFFIXES: .pfa .ph
 
 all: $(OUT)
@@ -41,7 +44,7 @@ inslist.src: inslist.pl ../x86/insns.dat
 
 .PHONY: html
 html: $(HTMLAUX)
-	mkdir -p html
+	$(MKDIR) -p html
 	for f in $(HTMLAUX); do $(CP_UF) "$(srcdir)/$$f" html/; done
 	$(MAKE) html/nasmdoc0.html
 
@@ -81,6 +84,7 @@ spotless: clean
 	-$(RM_F) *.hlp nasmdoc.txt *.inf *.pdf *.dvi
 
 install: all
-	mkdir -p $(INSTALLROOT)$(docdir)/html
-	$(INSTALL_DATA) html/* $(INSTALLROOT)$(docdir)/html
-	$(INSTALL_DATA) nasmdoc.pdf nasmdoc.txt $(INSTALLROOT)$(docdir)
+	$(MKDIR) -p $(DESTDIR)$(htmldir)
+	$(INSTALL_DATA) html/* $(DESTDIR)$(htmldir)
+	$(MKDIR) -p $(DESTDIR)$(docdir)
+	$(INSTALL_DATA) nasmdoc.pdf nasmdoc.txt $(DESTDIR)$(docdir)

@@ -315,6 +315,7 @@ elf_directive(enum directive directive, char *value, int pass)
 
 static void elf_init(void)
 {
+    strlcpy(elf_module, inname, sizeof(elf_module));
     sects = NULL;
     nsects = sectlen = 0;
     syms = saa_init((int32_t)sizeof(struct elf_symbol));
@@ -336,19 +337,19 @@ static void elf_init(void)
      */
 
     elf_gotpc_sect = seg_alloc();
-    define_label("..gotpc", elf_gotpc_sect + 1, 0L, NULL, false, false);
+    backend_label("..gotpc", elf_gotpc_sect + 1, 0L);
     elf_gotoff_sect = seg_alloc();
-    define_label("..gotoff", elf_gotoff_sect + 1, 0L, NULL, false, false);
+    backend_label("..gotoff", elf_gotoff_sect + 1, 0L);
     elf_got_sect = seg_alloc();
-    define_label("..got", elf_got_sect + 1, 0L, NULL, false, false);
+    backend_label("..got", elf_got_sect + 1, 0L);
     elf_plt_sect = seg_alloc();
-    define_label("..plt", elf_plt_sect + 1, 0L, NULL, false, false);
+    backend_label("..plt", elf_plt_sect + 1, 0L);
     elf_sym_sect = seg_alloc();
-    define_label("..sym", elf_sym_sect + 1, 0L, NULL, false, false);
+    backend_label("..sym", elf_sym_sect + 1, 0L);
     elf_gottpoff_sect = seg_alloc();
-    define_label("..gottpoff", elf_gottpoff_sect + 1, 0L, NULL, false, false);
+    backend_label("..gottpoff", elf_gottpoff_sect + 1, 0L);
     elf_tlsie_sect = seg_alloc();
-    define_label("..tlsie", elf_tlsie_sect + 1, 0L, NULL, false, false);
+    backend_label("..tlsie", elf_tlsie_sect + 1, 0L);
 
     def_seg = seg_alloc();
 }
@@ -934,7 +935,7 @@ static void elf32_out(int32_t segto, const void *data,
         }
 
         if (gnu16) {
-            nasm_error(ERR_WARNING | ERR_WARN_GNUELF,
+            nasm_error(ERR_WARNING | WARN_GNUELF,
                   "8- or 16-bit relocations in ELF32 is a GNU extension");
         } else if (asize != 4 && segment != NO_SEG) {
             nasm_error(ERR_NONFATAL, "Unsupported non-32-bit ELF relocation");
@@ -960,7 +961,7 @@ rel12adr:
                   " segment base references");
         } else {
             if (wrt == NO_SEG) {
-                nasm_error(ERR_WARNING | ERR_WARN_GNUELF,
+                nasm_error(ERR_WARNING | WARN_GNUELF,
                       "8- or 16-bit relocations in ELF is a GNU extension");
                 elf_add_reloc(s, segment, 0, reltype);
             } else {
@@ -2224,12 +2225,6 @@ static int32_t elf_segbase(int32_t segment)
     return segment;
 }
 
-static void elf_filename(char *inname, char *outname)
-{
-    strcpy(elf_module, inname);
-    standard_extension(inname, outname, ".o");
-}
-
 extern macros_t elf_stdmac[];
 
 /* Claim "elf" as a pragma namespace, for the future */
@@ -2272,20 +2267,22 @@ static const struct dfmt * const elf32_debugs_arr[3] =
 const struct ofmt of_elf32 = {
     "ELF32 (i386) object files (e.g. Linux)",
     "elf32",
+    ".o",
     0,
     32,
     elf32_debugs_arr,
     &elf32_df_stabs,
     elf_stdmac,
     elf_init,
+    null_reset,
     nasm_do_legacy_output,
     elf32_out,
     elf_deflabel,
     elf_section_names,
+    NULL,
     elf_sectalign,
     elf_segbase,
     elf_directive,
-    elf_filename,
     elf_cleanup,
     elf_pragma_list,
 };
@@ -2322,20 +2319,22 @@ static const struct dfmt * const elf64_debugs_arr[3] =
 const struct ofmt of_elf64 = {
     "ELF64 (x86_64) object files (e.g. Linux)",
     "elf64",
+    ".o",
     0,
     64,
     elf64_debugs_arr,
     &elf64_df_stabs,
     elf_stdmac,
     elf_init,
+    null_reset,
     nasm_do_legacy_output,
     elf64_out,
     elf_deflabel,
     elf_section_names,
+    NULL,
     elf_sectalign,
     elf_segbase,
     elf_directive,
-    elf_filename,
     elf_cleanup,
     elf_pragma_list,
 };
@@ -2372,20 +2371,22 @@ static const struct dfmt * const elfx32_debugs_arr[3] =
 const struct ofmt of_elfx32 = {
     "ELFX32 (x86_64) object files (e.g. Linux)",
     "elfx32",
+    ".o",
     0,
     64,
     elfx32_debugs_arr,
     &elfx32_df_stabs,
     elf_stdmac,
     elf_init,
+    null_reset,
     nasm_do_legacy_output,
     elfx32_out,
     elf_deflabel,
     elf_section_names,
+    NULL,
     elf_sectalign,
     elf_segbase,
     elf_directive,
-    elf_filename,
     elf_cleanup,
     NULL                        /* pragma list */
 };
@@ -2458,6 +2459,10 @@ static void debug_typevalue(int32_t type)
             break;
         case TY_YWORD:
             ssize = 32;
+            stype = STT_OBJECT;
+            break;
+        case TY_ZWORD:
+            ssize = 64;
             stype = STT_OBJECT;
             break;
         case TY_COMMON:
@@ -2577,10 +2582,10 @@ static void stabs_generate(void)
         fileidx[i] = strsize;
         strsize += strlen(allfiles[i]) + 1;
     }
-    mainfileindex = 0;
+    currfile = mainfileindex = 0;
     for (i = 0; i < numfiles; i++) {
         if (!strcmp(allfiles[i], elf_module)) {
-            mainfileindex = i;
+            currfile = mainfileindex = i;
             break;
         }
     }
@@ -2640,7 +2645,6 @@ static void stabs_generate(void)
             WRITEDLONG(rptr, 0);
         }
         numstabs++;
-        currfile = mainfileindex;
     }
 
     if (is_elf32()) {
@@ -3159,6 +3163,8 @@ static void dwarf_generate(void)
     saa_write8(pabbrev,DW_AT_frame_base);
     saa_write8(pabbrev,DW_FORM_data4);
     saa_write16(pabbrev,0);     /* end of entry */
+    /* Terminal zero entry */
+    saa_write8(pabbrev,0);
     abbrevlen = saalen = pabbrev->datalen;
     abbrevbuf = pbuf = nasm_malloc(saalen);
     saa_rnbytes(pabbrev, pbuf, saalen);
@@ -3272,6 +3278,9 @@ static void dwarf_generate(void)
     loclen = 16;
     locbuf = pbuf = nasm_malloc(loclen);
     if (is_elf32()) {
+        WRITELONG(pbuf,0);  /* null  beginning offset */
+        WRITELONG(pbuf,0);  /* null  ending offset */
+    } else if (is_elfx32()) {
         WRITELONG(pbuf,0);  /* null  beginning offset */
         WRITELONG(pbuf,0);  /* null  ending offset */
     } else {

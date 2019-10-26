@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2014 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -46,6 +46,7 @@
 
 #include "nasm.h"
 #include "nasmlib.h"
+#include "ilog2.h"
 #include "error.h"
 #include "saa.h"
 #include "raa.h"
@@ -104,9 +105,6 @@ bool win32, win64;
 
 static int32_t imagebase_sect;
 #define WRT_IMAGEBASE "..imagebase"
-
-char coff_infile[FILENAME_MAX];
-char coff_outfile[FILENAME_MAX];
 
 /*
  * Some common section flags by default
@@ -200,7 +198,7 @@ static void coff_win64_init(void)
     win64 = true;
     coff_gen_init();
     imagebase_sect = seg_alloc()+1;
-    define_label(WRT_IMAGEBASE, imagebase_sect, 0, NULL, false, false);
+    backend_label(WRT_IMAGEBASE, imagebase_sect, 0);
 }
 
 static void coff_std_init(void)
@@ -1079,7 +1077,7 @@ static void coff_write_symbols(void)
      * The `.file' record, and the file name auxiliary record.
      */
     coff_symbol(".file", 0L, 0L, -2, 0, 0x67, 1);
-    strncpy(filename, coff_infile, 18);
+    strncpy(filename, inname, 18);
     nasm_write(filename, 18, ofile);
 
     /*
@@ -1142,20 +1140,6 @@ static int32_t coff_segbase(int32_t segment)
     return segment;
 }
 
-static void coff_std_filename(char *inname, char *outname)
-{
-    strcpy(coff_infile, inname);
-    standard_extension(inname, outname, ".o");
-    strcpy(coff_outfile, outname);
-}
-
-static void coff_win32_filename(char *inname, char *outname)
-{
-    strcpy(coff_infile, inname);
-    standard_extension(inname, outname, ".obj");
-    strcpy(coff_outfile, outname);
-}
-
 extern macros_t coff_stdmac[];
 
 #endif /* defined(OF_COFF) || defined(OF_WIN32) */
@@ -1165,20 +1149,22 @@ extern macros_t coff_stdmac[];
 const struct ofmt of_coff = {
     "COFF (i386) object files (e.g. DJGPP for DOS)",
     "coff",
+    ".o",
     0,
     32,
     null_debug_arr,
     &null_debug_form,
     coff_stdmac,
     coff_std_init,
+    null_reset,
     nasm_do_legacy_output,
     coff_out,
     coff_deflabel,
     coff_section_names,
+    NULL,
     coff_sectalign,
     coff_segbase,
     coff_directives,
-    coff_std_filename,
     coff_cleanup,
     NULL                        /* pragma list */
 };
@@ -1194,20 +1180,22 @@ static const struct dfmt * const win32_debug_arr[2] = { &df_cv8, NULL };
 const struct ofmt of_win32 = {
     "Microsoft Win32 (i386) object files",
     "win32",
+    ".obj",
     0,
     32,
     win32_debug_arr,
     &df_cv8,
     coff_stdmac,
     coff_win32_init,
+    null_reset,
     nasm_do_legacy_output,
     coff_out,
     coff_deflabel,
     coff_section_names,
+    NULL,
     coff_sectalign,
     coff_segbase,
     coff_directives,
-    coff_win32_filename,
     coff_cleanup,
     NULL                        /* pragma list */
 };
@@ -1221,20 +1209,22 @@ static const struct dfmt * const win64_debug_arr[2] = { &df_cv8, NULL };
 const struct ofmt of_win64 = {
     "Microsoft Win64 (x86-64) object files",
     "win64",
+    ".obj",
     0,
     64,
     win64_debug_arr,
     &df_cv8,
     coff_stdmac,
     coff_win64_init,
+    null_reset,
     nasm_do_legacy_output,
     coff_out,
     coff_deflabel,
     coff_section_names,
+    NULL,
     coff_sectalign,
     coff_segbase,
     coff_directives,
-    coff_win32_filename,
     coff_cleanup,
     NULL                        /* pragma list */
 };

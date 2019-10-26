@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -59,12 +59,24 @@ struct Section {
 } *dbgsect;
 
 static unsigned long dbg_max_data_dump = 128;
+static bool section_labels = true;
+static bool subsections_via_symbols = false;
+static int32_t init_seg;
 
 const struct ofmt of_dbg;
 static void dbg_init(void)
 {
     dbgsect = NULL;
     fprintf(ofile, "NASM Output format debug dump\n");
+    fprintf(ofile, "input file  = %s\n", inname);
+    fprintf(ofile, "output file = %s\n", outname);
+    init_seg = seg_alloc();
+}
+
+static void dbg_reset(void)
+{
+    fprintf(ofile, "*** pass reset: pass0 = %d, passn = %"PRId64"\n",
+            pass0, passn);
 }
 
 static void dbg_cleanup(void)
@@ -78,7 +90,8 @@ static void dbg_cleanup(void)
     }
 }
 
-static int32_t dbg_section_names(char *name, int pass, int *bits)
+static int32_t dbg_add_section(char *name, int pass, int *bits,
+                                     const char *whatwecallit)
 {
     int seg;
 
@@ -88,12 +101,13 @@ static int32_t dbg_section_names(char *name, int pass, int *bits)
     if (!name)
         *bits = 16;
 
-    if (!name)
-        fprintf(ofile, "section_name on init: returning %d\n",
-                seg = seg_alloc());
-    else {
+    if (!name) {
+        fprintf(ofile, "section_name on init: returning %d\n", init_seg);
+        seg = init_seg;
+    } else {
         int n = strcspn(name, " \t");
         char *sname = nasm_strndup(name, n);
+        char *tail = nasm_skip_spaces(name+n);
         struct Section *s;
 
         seg = NO_SEG;
@@ -107,11 +121,38 @@ static int32_t dbg_section_names(char *name, int pass, int *bits)
             s->number = seg = seg_alloc();
             s->next = dbgsect;
             dbgsect = s;
-            fprintf(ofile, "section_name %s (pass %d): returning %d\n",
-                    name, pass, seg);
+            fprintf(ofile, "%s %s (%s) pass %d: returning %d\n",
+                    whatwecallit, name, tail, pass, seg);
+
+            if (section_labels)
+                backend_label(s->name, s->number + 1, 0);
         }
     }
     return seg;
+}
+
+static int32_t dbg_section_names(char *name, int pass, int *bits)
+{
+    return dbg_add_section(name, pass, bits, "section_names");
+}
+
+static int32_t dbg_herelabel(const char *name, enum label_type type,
+                             int32_t oldseg, int32_t *subsection,
+                             bool *copyoffset)
+{
+    int32_t newseg = oldseg;
+    
+    if (subsections_via_symbols && type != LBL_LOCAL) {
+        newseg = *subsection;
+        if (newseg == NO_SEG) {
+            newseg = *subsection = seg_alloc();
+            *copyoffset = true; /* Minic MachO for now */
+        }
+    }
+    fprintf(ofile, "herelabel %s type %d (seg %08x) -> %08x\n",
+            name, type, oldseg, newseg);
+
+    return newseg;
 }
 
 static void dbg_deflabel(char *name, int32_t segment, int64_t offset,
@@ -128,6 +169,7 @@ static const char *out_type(enum out_type type)
     static const char *out_types[] = {
         "rawdata",
         "reserve",
+        "zerodata",
         "address",
         "reladdr",
         "segment"
@@ -182,7 +224,7 @@ static void dbg_out(const struct out_data *data)
             fprintf(ofile, " wrt %"PRIx32, data->twrt);
     }
     if (data->type == OUT_RELADDR)
-        fprintf(ofile, " relbase %"PRId64, data->relbase);
+        fprintf(ofile, " relbase %"PRIx64, data->relbase);
 
     putc('\n', ofile);
 
@@ -236,8 +278,8 @@ static void dbg_legacy_out(int32_t segto, const void *data,
         fprintf(ofile, "  legacy: out to %"PRIx32", len = %d: ",
                 segto, (int)abs((int)size));
     else
-        fprintf(ofile, "  legacy: out to %"PRIx32", len = %"PRIu64": ",
-                segto, size);
+        fprintf(ofile, "  legacy: out to %"PRIx32", len = %"PRId64" (0x%"PRIx64"): ",
+                segto, (int64_t)size, size);
 
     switch (type) {
     case OUT_RESERVE:
@@ -288,6 +330,23 @@ static int32_t dbg_segbase(int32_t segment)
 static enum directive_result
 dbg_directive(enum directive directive, char *value, int pass)
 {
+    switch (directive) {
+        /*
+         * The .obj GROUP directive is nontrivial to emulate in a macro.
+         * It effectively creates a "pseudo-section" containing the first
+         * space-separated argument; the rest we ignore.
+         */
+    case D_GROUP:
+    {
+        int dummy;
+        dbg_add_section(value, pass, &dummy, "directive:group");
+        break;
+    }
+
+    default:
+        break;
+    }
+
     fprintf(ofile, "directive [%s] value [%s] (pass %d)\n",
             directive_dname(directive), value, pass);
     return DIRR_OK;
@@ -309,32 +368,37 @@ dbg_pragma(const struct pragma *pragma)
             pragma->opname, directive_dname(pragma->opcode),
             pragma->tail);
 
-    if (pragma->facility == &dbg_pragma_list[0] &&
-        pragma->opcode == D_MAXDUMP) {
-        if (!nasm_stricmp(pragma->tail, "unlimited")) {
-            dbg_max_data_dump = -1UL;
-        } else {
-            char *ep;
-            unsigned long arg;
-
-            errno = 0;
-            arg = strtoul(pragma->tail, &ep, 0);
-            if (errno || *nasm_skip_spaces(ep)) {
-                nasm_error(ERR_WARNING | ERR_WARN_BAD_PRAGMA | ERR_PASS2,
-                           "invalid %%pragma dbg maxdump argument");
-                return DIRR_ERROR;
+    if (pragma->facility == &dbg_pragma_list[0]) {
+        switch (pragma->opcode) {
+        case D_MAXDUMP:
+            if (!nasm_stricmp(pragma->tail, "unlimited")) {
+                dbg_max_data_dump = -1UL;
             } else {
-                dbg_max_data_dump = arg;
+                char *ep;
+                unsigned long arg;
+
+                errno = 0;
+                arg = strtoul(pragma->tail, &ep, 0);
+                if (errno || *nasm_skip_spaces(ep)) {
+                    nasm_error(ERR_WARNING | WARN_BAD_PRAGMA | ERR_PASS2,
+                               "invalid %%pragma dbg maxdump argument");
+                    return DIRR_ERROR;
+                } else {
+                    dbg_max_data_dump = arg;
+                }
             }
+            break;
+        case D_NOSECLABELS:
+            section_labels = false;
+            break;
+        case D_SUBSECTIONS_VIA_SYMBOLS:
+            subsections_via_symbols = true;
+            break;
+        default:
+            break;
         }
     }
-
     return DIRR_OK;
-}
-
-static void dbg_filename(char *inname, char *outname)
-{
-    standard_extension(inname, outname, ".dbg");
 }
 
 static const char * const types[] = {
@@ -401,23 +465,27 @@ static const struct dfmt * const debug_debug_arr[3] = {
     NULL
 };
 
+extern macros_t dbg_stdmac[];
+
 const struct ofmt of_dbg = {
     "Trace of all info passed to output stage",
     "dbg",
+    ".dbg",
     OFMT_TEXT,
     64,
     debug_debug_arr,
     &debug_debug_form,
-    NULL,
+    dbg_stdmac,
     dbg_init,
+    dbg_reset,
     dbg_out,
     dbg_legacy_out,
     dbg_deflabel,
     dbg_section_names,
+    dbg_herelabel,
     dbg_sectalign,
     dbg_segbase,
     dbg_directive,
-    dbg_filename,
     dbg_cleanup,
     dbg_pragma_list
 };

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2016 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -40,12 +40,12 @@
 #include "nasmlib.h"
 #include "insns.h"
 
+static int32_t next_seg  = 2;
+
 int32_t seg_alloc(void)
 {
-    static int32_t next_seg = 0;
     int32_t this_seg = next_seg;
 
     next_seg += 2;
-
     return this_seg;
 }

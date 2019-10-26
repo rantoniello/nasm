@@ -50,60 +50,29 @@ void nasm_write(const void *ptr, size_t size, FILE *f)
         nasm_fatal(0, "unable to write output: %s", strerror(errno));
 }
 
-#ifdef WORDS_LITTLEENDIAN
-
 void fwriteint16_t(uint16_t data, FILE * fp)
 {
+    data = cpu_to_le16(data);
     nasm_write(&data, 2, fp);
 }
 
 void fwriteint32_t(uint32_t data, FILE * fp)
 {
+    data = cpu_to_le32(data);
     nasm_write(&data, 4, fp);
 }
 
 void fwriteint64_t(uint64_t data, FILE * fp)
 {
+    data = cpu_to_le64(data);
     nasm_write(&data, 8, fp);
 }
 
 void fwriteaddr(uint64_t data, int size, FILE * fp)
 {
+    data = cpu_to_le64(data);
     nasm_write(&data, size, fp);
 }
-
-#else /* not WORDS_LITTLEENDIAN */
-
-void fwriteint16_t(uint16_t data, FILE * fp)
-{
-    char buffer[2], *p = buffer;
-    WRITESHORT(p, data);
-    nasm_write(buffer, 2, fp);
-}
-
-void fwriteint32_t(uint32_t data, FILE * fp)
-{
-    char buffer[4], *p = buffer;
-    WRITELONG(p, data);
-    nasm_write(buffer, 4, fp);
-}
-
-void fwriteint64_t(uint64_t data, FILE * fp)
-{
-    char buffer[8], *p = buffer;
-    WRITEDLONG(p, data);
-    nasm_write(buffer, 8, fp);
-}
-
-void fwriteaddr(uint64_t data, int size, FILE * fp)
-{
-    char buffer[8], *p = buffer;
-    WRITEADDR(p, data, size);
-    nasm_write(buffer, size, fp);
-}
-
-#endif
-
 
 void fwritezero(off_t bytes, FILE *fp)
 {
@@ -237,5 +206,23 @@ off_t nasm_file_size_by_path(const char *pathname)
     fclose(fp);
 
     return len;
+#endif
+}
+
+/*
+ * Report the timestamp on a file, returns true if successful
+ */
+bool nasm_file_time(time_t *t, const char *pathname)
+{
+#ifdef nasm_stat
+    nasm_struct_stat st;
+
+    if (nasm_stat(pathname, &st))
+        return false;
+
+    *t = st.st_mtime;
+    return true;
+#else
+    return false;               /* No idea how to do this on this OS */
 #endif
 }

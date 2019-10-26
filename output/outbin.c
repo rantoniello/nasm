@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *   
- *   Copyright 1996-2013 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -161,7 +161,6 @@ static int origin_defined;
 #define MAP_SECTIONS     4
 #define MAP_SYMBOLS      8
 static int map_control = 0;
-static char *infile, *outfile;
 
 extern macros_t bin_stdmac[];
 
@@ -580,7 +579,7 @@ static void bin_cleanup(void)
         for (h = 63; h; h--)
             fputc('-', rf);
         fprintf(rf, "\n\nSource file:  %s\nOutput file:  %s\n\n",
-                infile, outfile);
+                inname, outname);
 
         if (map_control & MAP_ORIGIN) { /* Display program origin. */
             fprintf(rf, "-- Program origin ");
@@ -650,6 +649,7 @@ static void bin_cleanup(void)
         if (map_control & MAP_SYMBOLS) {
             int32_t segment;
             int64_t offset;
+            bool found_label;
 
             fprintf(rf, "-- Symbols ");
             for (h = 68; h; h--)
@@ -661,7 +661,8 @@ static void bin_cleanup(void)
                     fputc('-', rf);
                 fprintf(rf, "\n\nValue     Name\n");
                 list_for_each(l, no_seg_labels) {
-                    lookup_label(l->name, &segment, &offset);
+                    found_label = lookup_label(l->name, &segment, &offset);
+                    nasm_assert(found_label);
                     fprintf(rf, "%08"PRIX64"  %s\n", offset, l->name);
                 }
                 fprintf(rf, "\n\n");
@@ -673,7 +674,8 @@ static void bin_cleanup(void)
                         fputc('-', rf);
                     fprintf(rf, "\n\nReal              Virtual           Name\n");
                     list_for_each(l, s->labels) {
-                        lookup_label(l->name, &segment, &offset);
+                        found_label = lookup_label(l->name, &segment, &offset);
+                        nasm_assert(found_label);
                         fprintf(rf, "%16"PRIX64"  %16"PRIX64"  %s\n",
                                 s->start + offset, s->vstart + offset,
                                 l->name);
@@ -1215,11 +1217,11 @@ static void bin_define_section_labels(void)
 
         /* section.<name>.start */
         strcpy(label_name + base_len, ".start");
-        define_label(label_name, sec->start_index, 0L, NULL, 0, 0);
+        define_label(label_name, sec->start_index, 0L, false);
 
         /* section.<name>.vstart */
         strcpy(label_name + base_len, ".vstart");
-        define_label(label_name, sec->vstart_index, 0L, NULL, 0, 0);
+        define_label(label_name, sec->vstart_index, 0L, false);
 
         nasm_free(label_name);
     }
@@ -1369,27 +1371,6 @@ bin_directive(enum directive directive, char *args, int pass)
     default:
 	return DIRR_UNKNOWN;
     }
-}
-
-static void bin_filename(char *inname, char *outname)
-{
-    standard_extension(inname, outname, "");
-    infile = inname;
-    outfile = outname;
-}
-
-static void ith_filename(char *inname, char *outname)
-{
-    standard_extension(inname, outname, ".ith");
-    infile = inname;
-    outfile = outname;
-}
-
-static void srec_filename(char *inname, char *outname)
-{
-    standard_extension(inname, outname, ".srec");
-    infile = inname;
-    outfile = outname;
 }
 
 static int32_t bin_segbase(int32_t segment)
@@ -1650,20 +1631,22 @@ static void do_output_srec(void)
 const struct ofmt of_bin = {
     "flat-form binary files (e.g. DOS .COM, .SYS)",
     "bin",
+    "",
     0,
     64,
     null_debug_arr,
     &null_debug_form,
     bin_stdmac,
     bin_init,
+    null_reset,
     nasm_do_legacy_output,
     bin_out,
     bin_deflabel,
     bin_secname,
+    NULL,
     bin_sectalign,
     bin_segbase,
     bin_directive,
-    bin_filename,
     bin_cleanup,
     NULL                        /* pragma list */
 };
@@ -1671,20 +1654,22 @@ const struct ofmt of_bin = {
 const struct ofmt of_ith = {
     "Intel hex",
     "ith",
+    ".ith",                     /* really should have been ".hex"... */
     OFMT_TEXT,
     64,
     null_debug_arr,
     &null_debug_form,
     bin_stdmac,
     ith_init,
+    null_reset,
     nasm_do_legacy_output,
     bin_out,
     bin_deflabel,
     bin_secname,
+    NULL,
     bin_sectalign,
     bin_segbase,
     bin_directive,
-    ith_filename,
     bin_cleanup,
     NULL                        /* pragma list */
 };
@@ -1692,20 +1677,22 @@ const struct ofmt of_ith = {
 const struct ofmt of_srec = {
     "Motorola S-records",
     "srec",
+    ".srec",
     OFMT_TEXT,
     64,
     null_debug_arr,
     &null_debug_form,
     bin_stdmac,
     srec_init,
+    null_reset,
     nasm_do_legacy_output,
     bin_out,
     bin_deflabel,
     bin_secname,
+    NULL,
     bin_sectalign,
     bin_segbase,
     bin_directive,
-    srec_filename,
     bin_cleanup,
     NULL                        /* pragma list */
 };

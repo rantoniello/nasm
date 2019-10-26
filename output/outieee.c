@@ -1,5 +1,5 @@
 /* ----------------------------------------------------------------------- *
- *   
+ *
  *   Copyright 1996-2016 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
@@ -14,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *     
+ *
  *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
  *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -209,6 +209,7 @@ static void ieee_unqualified_name(char *, char *);
  */
 static void ieee_init(void)
 {
+    strlcpy(ieee_infile, inname, sizeof(ieee_infile));
     any_segs = false;
     fpubhead = NULL;
     fpubtail = &fpubhead;
@@ -807,10 +808,9 @@ static int32_t ieee_segment(char *name, int pass, int *bits)
 
         ieee_seg_needs_update = seg;
         if (seg->align >= SEG_ABS)
-            define_label(name, NO_SEG, seg->align - SEG_ABS,
-			 NULL, false, false);
+            define_label(name, NO_SEG, seg->align - SEG_ABS, false);
         else
-            define_label(name, seg->index + 1, 0L, NULL, false, false);
+            define_label(name, seg->index + 1, 0L, false);
         ieee_seg_needs_update = NULL;
 
         if (seg->use32)
@@ -835,7 +835,7 @@ ieee_directive(enum directive directive, char *value, int pass)
     case D_UPPERCASE:
         ieee_uppercase = true;
         return DIRR_OK;
-	
+
     default:
 	return DIRR_UNKNOWN;
     }
@@ -886,19 +886,9 @@ static int32_t ieee_segbase(int32_t segment)
     return segment;             /* no special treatment */
 }
 
-/*
- * filename
- */
-static void ieee_filename(char *inname, char *outname)
-{
-    strcpy(ieee_infile, inname);
-    standard_extension(inname, outname, ".o");
-}
-
 static void ieee_write_file(void)
 {
-    struct tm *thetime;
-    time_t reltime;
+    const struct tm * const thetime = &official_compile_time.local;
     struct FileName *fn;
     struct ieeeSection *seg;
     struct ieeePublic *pub, *loc;
@@ -927,8 +917,6 @@ static void ieee_write_file(void)
     /*
      * date and time
      */
-    time(&reltime);
-    thetime = localtime(&reltime);
     ieee_putascii("DT%04d%02d%02d%02d%02d%02d.\n",
                   1900 + thetime->tm_year, thetime->tm_mon + 1,
                   thetime->tm_mday, thetime->tm_hour, thetime->tm_min,
@@ -1510,20 +1498,22 @@ static const struct dfmt * const ladsoft_debug_arr[3] = {
 const struct ofmt of_ieee = {
     "IEEE-695 (LADsoft variant) object file format",
     "ieee",
+    ".o",
     OFMT_TEXT,
     32,
     ladsoft_debug_arr,
     &ladsoft_debug_form,
     NULL,
     ieee_init,
+    null_reset,
     nasm_do_legacy_output,
     ieee_out,
     ieee_deflabel,
     ieee_segment,
+    NULL,
     ieee_sectalign,
     ieee_segbase,
     ieee_directive,
-    ieee_filename,
     ieee_cleanup,
     NULL                        /* pragma list */
 };

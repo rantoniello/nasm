@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
- *   
- *   Copyright 1996-2016 The NASM Authors - All Rights Reserved
+ *
+ *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -14,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *     
+ *
  *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
  *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -39,31 +39,25 @@
 #include "nasmlib.h"
 #include "error.h"
 
-void standard_extension(char *inname, char *outname, char *extension)
+/*
+ * Add/modify a filename extension, assumed to be a period-delimited
+ * field at the very end of the filename.  Returns a newly allocated
+ * string buffer.
+ */
+const char *filename_set_extension(const char *inname, const char *extension)
 {
-    char *p, *q;
+    const char *q = inname;
+    char *p;
+    size_t elen = strlen(extension);
+    size_t baselen;
 
-    if (*outname)               /* file name already exists, */
-        return;                 /* so do nothing */
-    q = inname;
-    p = outname;
-    while (*q)
-        *p++ = *q++;            /* copy, and find end of string */
-    *p = '\0';                  /* terminate it */
-    while (p > outname && *--p != '.') ;        /* find final period (or whatever) */
-    if (*p != '.')
-        while (*p)
-            p++;                /* go back to end if none found */
-    if (!strcmp(p, extension)) {        /* is the extension already there? */
-        if (*extension)
-            nasm_error(ERR_WARNING | ERR_NOFILE,
-		       "file name already ends in `%s': "
-		       "output will be in `nasm.out'", extension);
-        else
-            nasm_error(ERR_WARNING | ERR_NOFILE,
-		       "file name already has no extension: "
-		       "output will be in `nasm.out'");
-        strcpy(outname, "nasm.out");
-    } else
-        strcpy(p, extension);
+    q = strrchrnul(inname, '.');   /* find extension or end of string */
+    baselen = q - inname;
+
+    p = nasm_malloc(baselen + elen + 1);
+
+    memcpy(p, inname, baselen);
+    memcpy(p+baselen, extension, elen+1);
+
+    return p;
 }

@@ -1,7 +1,18 @@
 dnl --------------------------------------------------------------------------
-dnl PA_ADD_CFLAGS()
+dnl PA_SYM(prefix, string)
 dnl
-dnl Attempt to add the given option to CFLAGS, if it doesn't break compilation
+dnl Convert a (semi-) arbitrary string to a CPP symbol
+dnl --------------------------------------------------------------------------
+AC_DEFUN(PA_SYM,
+[[$1]m4_bpatsubsts(m4_toupper([$2]),[[^ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789]+],[_],[^._?\(.*\)_.$],[[\1]])])
+
+dnl --------------------------------------------------------------------------
+dnl PA_ADD_CFLAGS(flag [,actual_flag])
+dnl
+dnl Attempt to add the given option to CFLAGS, if it doesn't break
+dnl compilation.  If the option to be tested is different than the
+dnl option that should actually be added, add the option to be
+dnl actually added as a second argument.
 dnl --------------------------------------------------------------------------
 AC_DEFUN(PA_ADD_CFLAGS,
 [AC_MSG_CHECKING([if $CC accepts $1])
@@ -10,12 +21,14 @@ AC_DEFUN(PA_ADD_CFLAGS,
  AC_TRY_LINK(AC_INCLUDES_DEFAULT,
  [printf("Hello, World!\n");],
  [AC_MSG_RESULT([yes])
-  CFLAGS="$pa_add_cflags__old_cflags ifelse([$2],[],[$1],[$2])"],
+  CFLAGS="$pa_add_cflags__old_cflags ifelse([$2],[],[$1],[$2])"
+  AC_DEFINE(PA_SYM([CFLAG_],[$1]), 1,
+   [Define to 1 if compiled with the `$1' compiler flag])],
  [AC_MSG_RESULT([no])
   CFLAGS="$pa_add_cflags__old_cflags"])])
 
 dnl --------------------------------------------------------------------------
-dnl PA_ADD_CLDFLAGS()
+dnl PA_ADD_CLDFLAGS(flag [,actual_flag])
 dnl
 dnl Attempt to add the given option to CFLAGS and LDFLAGS,
 dnl if it doesn't break compilation
@@ -30,32 +43,33 @@ AC_DEFUN(PA_ADD_CLDFLAGS,
  [printf("Hello, World!\n");],
  [AC_MSG_RESULT([yes])
   CFLAGS="$pa_add_cldflags__old_cflags ifelse([$2],[],[$1],[$2])"
-  LDFLAGS="$pa_add_cldflags__old_ldflags ifelse([$2],[],[$1],[$2])"],
+  LDFLAGS="$pa_add_cldflags__old_ldflags ifelse([$2],[],[$1],[$2])"
+  AC_DEFINE(PA_SYM([CFLAG_],[$1]), 1,
+   [Define to 1 if compiled with the `$1' compiler flag])],
  [AC_MSG_RESULT([no])
   CFLAGS="$pa_add_cldflags__old_cflags"
   LDFLAGS="$pa_add_cldflags__old_ldflags"])])
 
 dnl --------------------------------------------------------------------------
-dnl PA_VAR
-dnl
-dnl Canonicalize a variable name: upper case, and fold non-C characters
-dnl to underscores.
-dnl --------------------------------------------------------------------------
-AC_DEFUN(PA_VAR, [patsubst(m4_toupper([$1]),[[^A-Za-z0-9_]],[_])])
-
-dnl --------------------------------------------------------------------------
-dnl PA_HAVE_FUNC
+dnl PA_HAVE_FUNC(func_name)
 dnl
 dnl Look for a function with the specified arguments which could be
 dnl a builtin/intrinsic function.
 dnl --------------------------------------------------------------------------
 AC_DEFUN(PA_HAVE_FUNC,
 [AC_MSG_CHECKING([for $1])
-AC_TRY_LINK(AC_INCLUDES_DEFAULT, [(void)$1$2;],
-AC_MSG_RESULT([yes])
-AC_DEFINE(PA_VAR([HAVE_$1]), [1],
-  [Define to 1 if you have the `$1' intrinsic function.]),
-AC_MSG_RESULT([no]))])
+ AC_LINK_IFELSE([AC_LANG_SOURCE([
+AC_INCLUDES_DEFAULT
+int main(void) {
+    (void)$1$2;
+    return 0;
+}
+ ])],
+ [AC_MSG_RESULT([yes])
+  AC_DEFINE(AS_TR_CPP([HAVE_$1]), 1,
+  [Define to 1 if you have the `$1' intrinsic function.])],
+ [AC_MSG_RESULT([no])])
+])
 
 dnl --------------------------------------------------------------------------
 dnl PA_LIBEXT
@@ -78,7 +92,7 @@ AC_MSG_RESULT([$LIBEXT])
 AC_SUBST([LIBEXT])])
 
 dnl --------------------------------------------------------------------------
-dnl PA_FUNC_ATTRIBUTE
+dnl PA_FUNC_ATTRIBUTE(attribute_name)
 dnl
 dnl See if this compiler supports the equivalent of a specific gcc
 dnl attribute on a function, using the __attribute__(()) syntax.
@@ -92,14 +106,15 @@ AC_DEFUN(PA_FUNC_ATTRIBUTE,
 AC_INCLUDES_DEFAULT
 extern ifelse([$3],[],[void *],[$3])  __attribute__(($1$2))
   bar(ifelse([$4],[],[int],[$4]));
-void *foo(void);
-void *foo(void)
+ifelse([$3],[],[void *],[$3]) foo(void);
+ifelse([$3],[],[void *],[$3]) foo(void)
 {
-	return bar(ifelse([$5],[],[1],[$5]));
+	ifelse([$3],[void],[],[return])
+		bar(ifelse([$5],[],[1],[$5]));
 }
  ])],
  [AC_MSG_RESULT([yes])
-  AC_DEFINE(PA_VAR([HAVE_FUNC_ATTRIBUTE_$1]), 1,
+  AC_DEFINE(PA_SYM([HAVE_FUNC_ATTRIBUTE_],[$1]), 1,
     [Define to 1 if your compiler supports __attribute__(($1)) on functions])],
  [AC_MSG_RESULT([no])])
 ])
@@ -124,14 +139,14 @@ void foo(void)
 }
  ])],
  [AC_MSG_RESULT([yes])
-  AC_DEFINE(PA_VAR([HAVE_FUNC_ATTRIBUTE_ERROR]), 1,
+  AC_DEFINE([HAVE_FUNC_ATTRIBUTE_ERROR], 1,
     [Define to 1 if your compiler supports __attribute__((error)) on functions])],
  [AC_MSG_RESULT([no])])
 ])
 
 dnl --------------------------------------------------------------------------
-dnl PA_ARG_ENABLED
-dnl PA_ARG_DISABLED
+dnl PA_ARG_ENABLED(option, helptext [,enabled_action [,disabled_action]])
+dnl PA_ARG_DISABLED(option, helptext [,disabled_action [,enabled_action]])
 dnl
 dnl  Simpler-to-use versions of AC_ARG_ENABLED, that include the
 dnl  test for $enableval and the AS_HELP_STRING definition
@@ -147,13 +162,41 @@ AC_DEFUN(PA_ARG_DISABLED,
 ])
 
 dnl --------------------------------------------------------------------------
-dnl PA_ADD_HEADERS()
+dnl PA_ADD_HEADERS(headers...)
 dnl
 dnl Call AC_CHECK_HEADERS(), and add to ac_includes_default if found
 dnl --------------------------------------------------------------------------
 AC_DEFUN(_PA_ADD_HEADER,
 [AC_CHECK_HEADERS([$1],[ac_includes_default="$ac_includes_default
-#include <$1>"])])
+#include <$1>"
+])])
 
 AC_DEFUN(PA_ADD_HEADERS,
 [m4_map_args_w([$1],[_PA_ADD_HEADER(],[)])])
+
+dnl --------------------------------------------------------------------------
+dnl PA_CHECK_BAD_STDC_INLINE
+dnl
+dnl Some versions of gcc seem to apply -Wmissing-prototypes to C99
+dnl inline functions, which means we need to use GNU inline syntax
+dnl --------------------------------------------------------------------------
+AC_DEFUN(PA_CHECK_BAD_STDC_INLINE,
+[AC_MSG_CHECKING([if $CC supports C99 external inlines])
+ AC_COMPILE_IFELSE([AC_LANG_SOURCE([
+AC_INCLUDES_DEFAULT
+
+/* Don't mistake GNU inlines for c99 */
+#ifdef __GNUC_GNU_INLINE__
+# error "Using gnu inline standard"
+#endif
+
+inline int foo(int x)
+{
+	return x+1;
+}
+ ])],
+ [AC_MSG_RESULT([yes])
+  AC_DEFINE(HAVE_STDC_INLINE, 1,
+    [Define to 1 if your compiler supports C99 extern inline])],
+ [AC_MSG_RESULT([no])
+  PA_ADD_CFLAGS([-fgnu89-inline])])])

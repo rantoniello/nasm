@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
- *   
- *   Copyright 1996-2009 The NASM Authors - All Rights Reserved
+ *
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -14,7 +14,7 @@
  *     copyright notice, this list of conditions and the following
  *     disclaimer in the documentation and/or other materials provided
  *     with the distribution.
- *     
+ *
  *     THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND
  *     CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES,
  *     INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
@@ -45,12 +45,11 @@
 #define RAA_LAYERSHIFT	15      /* 2**this many _pointers_ allocated */
 #define RAA_LAYERSIZE	(1 << RAA_LAYERSHIFT)
 
-typedef struct RAA RAA;
 typedef union RAA_UNION RAA_UNION;
 typedef struct RAA_LEAF RAA_LEAF;
 typedef struct RAA_BRANCH RAA_BRANCH;
 
-struct RAA {
+struct real_raa {
     /*
      * Number of layers below this one to get to the real data. 0
      * means this structure is a leaf, holding RAA_BLKSIZE real
@@ -71,71 +70,92 @@ struct RAA {
 
     union RAA_UNION {
         struct RAA_LEAF {
-            int64_t data[RAA_BLKSIZE];
+            union intorptr data[RAA_BLKSIZE];
         } l;
         struct RAA_BRANCH {
-            struct RAA *data[RAA_LAYERSIZE];
+            struct real_raa *data[RAA_LAYERSIZE];
         } b;
     } u;
 };
 
-#define LEAFSIZ (sizeof(RAA)-sizeof(RAA_UNION)+sizeof(RAA_LEAF))
-#define BRANCHSIZ (sizeof(RAA)-sizeof(RAA_UNION)+sizeof(RAA_BRANCH))
+struct RAA {
+    struct real_raa raa;
+};
+struct RAAPTR {
+    struct real_raa raa;
+};
+
+#define LEAFSIZ (sizeof(struct real_raa)-sizeof(RAA_UNION)+sizeof(RAA_LEAF))
+#define BRANCHSIZ (sizeof(struct real_raa)-sizeof(RAA_UNION)+sizeof(RAA_BRANCH))
 
 #define LAYERSHIFT(r) ( (r)->layers==0 ? RAA_BLKSHIFT : RAA_LAYERSHIFT )
 
-static struct RAA *real_raa_init(int layers)
+static struct real_raa *raa_init_layer(int layers)
 {
-    struct RAA *r;
-    int i;
+    struct real_raa *r;
 
     if (layers == 0) {
         r = nasm_zalloc(LEAFSIZ);
         r->shift = 0;
     } else {
-        r = nasm_malloc(BRANCHSIZ);
+        r = nasm_zalloc(BRANCHSIZ);
         r->layers = layers;
-        for (i = 0; i < RAA_LAYERSIZE; i++)
-            r->u.b.data[i] = NULL;
-        r->shift =
-            (RAA_BLKSHIFT - RAA_LAYERSHIFT) + layers * RAA_LAYERSHIFT;
+        r->shift = (RAA_BLKSHIFT - RAA_LAYERSHIFT) + layers * RAA_LAYERSHIFT;
     }
     return r;
 }
 
-struct RAA *raa_init(void)
+struct real_raa *real_raa_init(void)
 {
-    return real_raa_init(0);
+    return raa_init_layer(0);
 }
 
-void raa_free(struct RAA *r)
+void real_raa_free(struct real_raa *r)
 {
     if (r->layers) {
-        struct RAA **p;
+        struct real_raa **p;
         for (p = r->u.b.data; p - r->u.b.data < RAA_LAYERSIZE; p++)
             if (*p)
-                raa_free(*p);
+                real_raa_free(*p);
     }
     nasm_free(r);
 }
 
-int64_t raa_read(struct RAA *r, int32_t posn)
+static const union intorptr *real_raa_read(struct real_raa *r, int32_t posn)
 {
     if ((uint32_t) posn >= (UINT32_C(1) << (r->shift + LAYERSHIFT(r))))
-        return 0;               /* Return 0 for undefined entries */
+        return NULL;            /* Beyond the end */
     while (r->layers > 0) {
         int32_t l = posn >> r->shift;
         posn &= (UINT32_C(1) << r->shift) - 1;
         r = r->u.b.data[l];
         if (!r)
-            return 0;           /* Return 0 for undefined entries */
+            return NULL;        /* Not present */
     }
-    return r->u.l.data[posn];
+    return &r->u.l.data[posn];
 }
 
-struct RAA *raa_write(struct RAA *r, int32_t posn, int64_t value)
+int64_t raa_read(struct RAA *r, int32_t pos)
 {
-    struct RAA *result;
+    const union intorptr *ip;
+
+    ip = real_raa_read((struct real_raa *)r, pos);
+    return ip ? ip->i : 0;
+}
+
+void *raa_read_ptr(struct RAAPTR *r, int32_t pos)
+{
+    const union intorptr *ip;
+
+    ip = real_raa_read((struct real_raa *)r, pos);
+    return ip ? ip->p : NULL;
+}
+
+
+struct real_raa *
+real_raa_write(struct real_raa *r, int32_t posn, union intorptr value)
+{
+    struct real_raa *result;
 
     nasm_assert(posn >= 0);
 
@@ -143,12 +163,9 @@ struct RAA *raa_write(struct RAA *r, int32_t posn, int64_t value)
         /*
          * Must add a layer.
          */
-        struct RAA *s;
-        int i;
+        struct real_raa *s;
 
-        s = nasm_malloc(BRANCHSIZ);
-        for (i = 0; i < RAA_LAYERSIZE; i++)
-            s->u.b.data[i] = NULL;
+        s = nasm_zalloc(BRANCHSIZ);
         s->layers = r->layers + 1;
         s->shift = LAYERSHIFT(r) + r->shift;
         s->u.b.data[0] = r;
@@ -158,12 +175,12 @@ struct RAA *raa_write(struct RAA *r, int32_t posn, int64_t value)
     result = r;
 
     while (r->layers > 0) {
-        struct RAA **s;
+        struct real_raa **s;
         int32_t l = posn >> r->shift;
         posn &= (UINT32_C(1) << r->shift) - 1;
         s = &r->u.b.data[l];
         if (!*s)
-            *s = real_raa_init(r->layers - 1);
+            *s = raa_init_layer(r->layers - 1);
         r = *s;
     }
 

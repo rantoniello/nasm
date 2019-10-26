@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -41,28 +41,29 @@
 #include "compiler.h"
 
 #include <stdio.h>
+#include <time.h>
+
 #include "nasmlib.h"
 #include "strlist.h"
 #include "preproc.h"
 #include "insnsi.h"     /* For enum opcode */
 #include "directiv.h"   /* For enum directive */
+#include "labels.h"     /* For enum mangle_index, enum label_type */
 #include "opflags.h"
 #include "regs.h"
 
-#define NO_SEG -1L              /* null segment value */
+/* Time stamp for the official start of compilation */
+struct compile_time {
+    time_t t;
+    bool have_local, have_gm, have_posix;
+    int64_t posix;
+    struct tm local;
+    struct tm gm;
+};
+extern struct compile_time official_compile_time;
+
+#define NO_SEG  INT32_C(-1)     /* null segment value */
 #define SEG_ABS 0x40000000L     /* mask for far-absolute segments */
-
-#ifndef FILENAME_MAX
-#define FILENAME_MAX 256
-#endif
-
-#ifndef PREFIX_MAX
-#define PREFIX_MAX 10
-#endif
-
-#ifndef POSTFIX_MAX
-#define POSTFIX_MAX 10
-#endif
 
 #define IDLEN_MAX 4096
 #define DECOLEN_MAX 32
@@ -88,6 +89,7 @@ struct ofmt;
 enum out_type {
     OUT_RAWDATA,    /* Plain bytes */
     OUT_RESERVE,    /* Reserved bytes (RESB et al) */
+    OUT_ZERODATA,   /* Initialized data, but all zero */
     OUT_ADDRESS,    /* An address (symbol value) */
     OUT_RELADDR,    /* A relative address */
     OUT_SEGMENT,    /* A segment number */
@@ -133,21 +135,13 @@ struct out_data {
 };
 
 /*
- * A label-lookup function.
- */
-typedef bool (*lfunc)(char *label, int32_t *segment, int64_t *offset);
-
-/*
  * And a label-definition function. The boolean parameter
  * `is_norm' states whether the label is a `normal' label (which
  * should affect the local-label system), or something odder like
  * an EQU or a segment-base symbol, which shouldn't.
  */
 typedef void (*ldfunc)(char *label, int32_t segment, int64_t offset,
-                       char *special, bool is_norm, bool isextrn);
-
-void define_label(char *label, int32_t segment, int64_t offset,
-                  char *special, bool is_norm, bool isextrn);
+                       char *special, bool is_norm);
 
 /*
  * Token types returned by the scanner, in addition to ordinary
@@ -341,7 +335,7 @@ struct preproc_ops {
      * of the pass, an error reporting function, an evaluator
      * function, and a listing generator to talk to.
      */
-    void (*reset)(char *file, int pass, StrList **deplist);
+    void (*reset)(const char *file, int pass, StrList **deplist);
 
     /*
      * Called to fetch a line of preprocessed source. The line
@@ -363,6 +357,9 @@ struct preproc_ops {
     /* Include file from command line */
     void (*pre_include)(char *fname);
 
+    /* Add a command from the command line */
+    void (*pre_command)(const char *what, char *str);
+
     /* Include path from command line */
     void (*include_path)(char *path);
 
@@ -372,6 +369,9 @@ struct preproc_ops {
 
 extern const struct preproc_ops nasmpp;
 extern const struct preproc_ops preproc_nop;
+
+/* List of dependency files */
+extern StrList *depend_list;
 
 /*
  * Some lexical properties of the NASM source language, included
@@ -727,10 +727,11 @@ enum directive_result {
  * as part of the struct pragma.
  */
 struct pragma;
+typedef enum directive_result (*pragma_handler)(const struct pragma *);
 
 struct pragma_facility {
     const char *name;
-    enum directive_result (*handler)(const struct pragma *);
+    pragma_handler handler;
 };
 
 /*
@@ -751,6 +752,23 @@ struct pragma {
 };
 
 /*
+ * These are semi-arbitrary limits to keep the assembler from going
+ * into a black hole on certain kinds of bugs.  They can be overridden
+ * by command-line options or %pragma.
+ */
+enum nasm_limit {
+    LIMIT_PASSES,
+    LIMIT_STALLED,
+    LIMIT_MACROS,
+    LIMIT_REP,
+    LIMIT_EVAL,
+    LIMIT_LINES
+};
+#define LIMIT_MAX LIMIT_LINES
+extern int64_t nasm_limit[LIMIT_MAX+1];
+extern enum directive_result  nasm_set_limit(const char *, const char *);
+
+/*
  * The data structure defining an output format driver, and the
  * interfaces to the functions therein.
  */
@@ -767,9 +785,16 @@ struct ofmt {
     const char *shortname;
 
     /*
+     * Default output filename extension, or a null string
+     */
+    const char *extension;
+
+    /*
      * Output format flags.
      */
-#define OFMT_TEXT   1		/* Text file format */
+#define OFMT_TEXT		1	/* Text file format */
+#define OFMT_KEEP_ADDR	2	/* Keep addr; no conversion to data */
+
     unsigned int flags;
 
     int maxbits;                /* Maximum segment bits supported */
@@ -799,6 +824,11 @@ struct ofmt {
      */
     void (*init)(void);
 
+    /*
+     * This procedure is called at the start of each pass.
+     */
+    void (*reset)(void);
+    
     /*
      * This is the modern output function, which gets passed
      * a struct out_data with much more information.  See the
@@ -873,6 +903,24 @@ struct ofmt {
     int32_t (*section)(char *name, int pass, int *bits);
 
     /*
+     * This function is called when a label is defined
+     * in the source code. It is allowed to change the section
+     * number as a result, but not the bits value.
+     * This is *only* called if the symbol defined is at the
+     * current offset, i.e. "foo:" or "foo equ $".
+     * The offset isn't passed; and may not be stable at this point.
+     * The subsection number is a field available for use by the
+     * backend. It is initialized to NO_SEG.
+     *
+     * If "copyoffset" is set by the backend then the offset is
+     * copied from the previous segment, otherwise the new segment
+     * is treated as a new segment the normal way.
+     */
+    int32_t (*herelabel)(const char *name, enum label_type type,
+                         int32_t seg, int32_t *subsection,
+                         bool *copyoffset);
+
+    /*
      * This procedure is called to modify section alignment,
      * note there is a trick, the alignment can only increase
      */
@@ -911,25 +959,6 @@ struct ofmt {
      */
     enum directive_result
     (*directive)(enum directive directive, char *value, int pass);
-
-    /*
-     * This procedure is called before anything else - even before
-     * the "init" routine - and is passed the name of the input
-     * file from which this output file is being generated. It
-     * should return its preferred name for the output file in
-     * `outname', if outname[0] is not '\0', and do nothing to
-     * `outname' otherwise. Since it is called before the driver is
-     * properly initialized, it has to be passed its error handler
-     * separately.
-     *
-     * This procedure may also take its own copy of the input file
-     * name for use in writing the output file: it is _guaranteed_
-     * that it will be called before the "init" routine.
-     *
-     * The parameter `outname' points to an area of storage
-     * guaranteed to be at least FILENAME_MAX in size.
-     */
-    void (*filename)(char *inname, char *outname);
 
     /*
      * This procedure is called after assembly finishes, to allow
@@ -1053,6 +1082,7 @@ extern const struct dfmt *dfmt;
 #define TY_TBYTE   0x38
 #define TY_OWORD   0x40
 #define TY_YWORD   0x48
+#define TY_ZWORD   0x50
 #define TY_COMMON  0xE0
 #define TY_SEG     0xE8
 #define TY_EXTERN  0xF0
@@ -1218,13 +1248,35 @@ enum decorator_tokens {
  *       2 = pass 2
  */
 
+/* 
+ * flag to disable optimizations selectively 
+ * this is useful to turn-off certain optimizations
+ */
+enum optimization_disable_flag {
+    OPTIM_ALL_ENABLED       = 0,
+    OPTIM_DISABLE_JMP_MATCH = 1
+};
+
+struct optimization {
+    int level;
+    int flag;
+};
+
 extern int pass0;
-extern int passn;               /* Actual pass number */
+extern int64_t passn;           /* Actual pass number */
 
 extern bool tasm_compatible_mode;
-extern int optimizing;
+extern struct optimization optimizing;
 extern int globalbits;          /* 16, 32 or 64-bit mode */
 extern int globalrel;           /* default to relative addressing? */
 extern int globalbnd;           /* default to using bnd prefix? */
+
+extern const char *inname;	/* primary input filename */
+extern const char *outname;     /* output filename */
+
+/*
+ * Switch to a different segment and return the current offset
+ */
+int64_t switch_segment(int32_t segment);
 
 #endif

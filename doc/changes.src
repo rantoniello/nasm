@@ -7,6 +7,181 @@
 The NASM 2 series supports x86-64, and is the production version of NASM
 since 2007.
 
+\S{cl-2.14.02} Version 2.14.02
+
+\b Fix crash due to multiple errors or warnings during the code
+generation pass if a list file is specified.
+
+\S{cl-2.14.01} Version 2.14.01
+
+\b Create all system-defined macros defore processing command-line
+given preprocessing directives (\c{-p}, \c{-d}, \c{-u}, \c{--pragma},
+\c{--before}).
+
+\b If debugging is enabled, define a \c{__DEBUG_FORMAT__} predefined
+macro.  See \k{dfmtm}.
+
+\b Fix an assert for the case in the \c{obj} format when a \c{SEG}
+operator refers to an \c{EXTERN} symbol declared further down in the
+code.
+
+\b Fix a corner case in the floating-point code where a binary, octal
+or hexadecimal floating-point having at least 32, 11, or 8 mantissa
+digits could produce slightly incorrect results under very specific
+conditions.
+
+\b Support \c{-MD} without a filename, for \c{gcc}
+compatibility. \c{-MF} can be used to set the dependencies output
+filename. See \k{opt-MD}.
+
+\b Fix \c{-E} in combination with \c{-MD}. See \k{opt-E}.
+
+\b Fix missing errors on redefined labels; would cause convergence
+failure instead which is very slow and not easy to debug.
+
+\b Duplicate definitions of the same label \e{with the same value} is now
+explicitly permitted (2.14 would allow it in some circumstances.)
+
+\b Add the option \c{--no-line} to ignore \c{%line} directives in the
+source. See \k{opt-no-line} and \k{line}.
+
+\S{cl-2.14} Version 2.14
+
+\b Changed \c{-I} option semantics by adding a trailing path separator
+   unconditionally.
+
+\b Fixed null dereference in corrupted invalid single line macros.
+
+\b Fixed division by zero which may happen if source code is malformed.
+
+\b Fixed out of bound access in processing of malformed segment override.
+
+\b Fixed out of bound access in certain \c{EQU} parsing.
+
+\b Fixed buffer underflow in float parsing.
+
+\b Added \c{SGX} (Intel Software Guard Extensions) instructions.
+
+\b Added \c{+n} syntax for multiple contiguous registers.
+
+\b Fixed \c{subsections_via_symbols} for \c{macho} object format.
+
+\b Added the \c{--gprefix}, \c{--gpostfix}, \c{--lprefix}, and
+\c{--lpostfix} command line options, to allow command line base symbol
+renaming. See \k{opt-pfix}.
+
+\b Allow label renaming to be specified by \c{%pragma} in addition to
+from the command line.  See \k{mangling}.
+
+\b Supported generic \c{%pragma} namespaces, \c{output} and \c{debug}. See
+\k{gen-namespace}.
+
+\b Added the \c{--pragma} command line option to inject a \c{%pragma}
+directive.  See \k{opt-pragma}.
+
+\b Added the \c{--before} command line option to accept preprocess
+statement before input. See \k{opt-before}.
+
+\b Added \c{AVX512} \c{VBMI2} (Additional Bit Manipulation), \c{VNNI} (Vector
+Neural Network), \c{BITALG} (Bit Algorithm), and \c{GFNI} (Galois Field New
+Instruction) instructions.
+
+\b Added the \c{STATIC} directive for local symbols that should be
+renamed using global-symbol rules. See \k{static}.
+
+\b Allow a symbol to be defined as \c{EXTERN} and then later
+overridden as \c{GLOBAL} or \c{COMMON}. Furthermore, a symbol declared
+\c{EXTERN} and then defined will be treated as \c{GLOBAL}. See \k{extern}.
+
+\b The \c{GLOBAL} directive no longer is required to precede the
+definition of the symbol.
+
+\b Support \c{private_extern} as \c{macho} specific extension to the
+\c{GLOBAL} directive. See \k{macho-pext}.
+
+\b Updated \c{UD0} encoding to match with the specification
+
+\b Added the \c{--limit-X} command line option to set execution
+limits. See \k{opt-limit}.
+
+\b Updated the \c{Codeview} version number to be aligned with \c{MASM}.
+
+\b Added the \c{--keep-all} command line option to preserve output
+files. See \k{opt-keep-all}.
+
+\b Added the \c{--include} command line option, an alias to \c{-P} (\k{opt-p}).
+
+\b Added the \c{--help} command line option as an alias to \c{-h} (\k{syntax}).
+
+\b Added \c{-W}, \c{-D}, and \c{-Q} suffix aliases for \c{RET}
+   instructions so the operand sizes of these instructions can be
+   encoded without using \c{o16}, \c{o32} or \c{o64}.
+
+\S{cl-2.13.03} Version 2.13.03
+
+\b Added AVX and AVX512 \c{VAES*} and \c{VPCLMULQDQ} instructions.
+
+\b Fixed missing dwarf record in x32 ELF output format.
+
+\S{cl-2.13.02} Version 2.13.02
+
+\b Fix false positive in testing of numeric overflows.
+
+\b Fix generation of \c{PEXTRW} instruction.
+
+\b Fix \c{smartalign} package which could trigger an error during
+   optimization if the alignment code expanded too much due to
+   optimization of the previous code.
+
+\b Fix a case where negative value in \c{TIMES} directive causes
+   panic instead of an error.
+
+\b Always finalize \c{.debug_abbrev} section with a null in
+   \c{dwarf} output format.
+
+\b Support \c{debug} flag in section attributes for \c{macho}
+   output format.  See \k{machosect}.
+
+\b Support up to 16 characters in section names for \c{macho}
+   output format.
+
+\b Fix missing update of global \c{BITS} setting if \c{SECTION}
+   directive specified a bit size using output format-specific
+   extensions (e.g. \c{USE32} for the \c{obj} output format.)
+
+\b Fix the incorrect generation of VEX-encoded instruction when static
+   mode decorators are specified on scalar instructions, losing the
+   decorators as they require EVEX encoding.
+
+\b Option \c{-MW} to quote dependency outputs according to Watcom
+   Make conventions instead of POSIX Make conventions.  See \k{opt-MW}.
+
+\b The \c{obj} output format now contains embedded dependency file
+   information, unless disabled with \c{%pragma obj nodepend}.  See
+   \k{objdepend}.
+
+\b Fix generation of dependency lists.
+
+\b Fix a number of null pointer reference and memory allocation errors.
+
+\b Always generate symbol-relative relocations for the \c{macho64}
+   output format; at least some versions of the XCode/LLVM linker fails
+   for section-relative relocations.
+
+\S{cl-2.13.01} Version 2.13.01
+
+\b Fix incorrect output for some types of \c{FAR} or \c{SEG}
+   references in the \c{obj} output format, and possibly other 16-bit
+   output formats.
+
+\b Fix the address in the list file for an instruction containing a
+   \c{TIMES} directive.
+
+\b Fix error with \c{TIMES} used together with an instruction which
+   can vary in size, e.g. \c{JMP}.
+
+\b Fix breakage on some uses of the \c{DZ} pseudo-op.
+
 \S{cl-2.13} Version 2.13
 
 \b Support the official forms of the \c{UD0} and \c{UD1} instructions.
@@ -83,9 +258,7 @@ since 2007.
    included in a shipping product; it is included for completeness
    only.
 
-\b Add the \c{%pragma} preprocessor directive for forward
-   compatibility with future versions of NASM.  At this time no pragmas
-   are implemented and this is merely a dummy directive.
+\b Add the \c{%pragma} preprocessor directive for soft-error directives.
 
 \b Add the \c{RDPID} instruction.
 

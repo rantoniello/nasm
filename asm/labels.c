@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -48,52 +48,72 @@
 #include "labels.h"
 
 /*
- * A local label is one that begins with exactly one period. Things
+ * A dot-local label is one that begins with exactly one period. Things
  * that begin with _two_ periods are NASM-specific things.
  *
  * If TASM compatibility is enabled, a local label can also begin with
- * @@, so @@local is a TASM compatible local label. Note that we only
- * check for the first @ symbol, although TASM requires both.
+ * @@.
  */
-#define islocal(l)                                                      \
-        (tasm_compatible_mode ?                                         \
-                (((l)[0] == '.' || (l)[0] == '@') && (l)[1] != '.') :   \
-                ((l)[0] == '.' && (l)[1] != '.'))
-#define islocalchar(c)                                                  \
-        (tasm_compatible_mode ?                                         \
-                ((c) == '.' || (c) == '@') :                            \
-                ((c) == '.'))
+static bool islocal(const char *l)
+{
+    if (tasm_compatible_mode) {
+        if (l[0] == '@' && l[1] == '@')
+            return true;
+    }
+
+    return (l[0] == '.' && l[1] != '.');
+}
+
+/*
+ * Return true if this falls into NASM's '..' namespace
+ */
+static bool ismagic(const char *l)
+{
+    return l[0] == '.' && l[1] == '.' && l[2] != '@';
+}
+
+/*
+ * Return true if we should update the local label base
+ * as a result of this symbol.  We must exclude local labels
+ * as well as any kind of special labels, including ..@ ones.
+ */
+static bool set_prevlabel(const char *l)
+{
+    if (tasm_compatible_mode) {
+        if (l[0] == '@' && l[1] == '@')
+            return false;
+    }
+
+    return l[0] != '.';
+}
 
 #define LABEL_BLOCK     128     /* no. of labels/block */
 #define LBLK_SIZE       (LABEL_BLOCK * sizeof(union label))
 
 #define END_LIST        -3      /* don't clash with NO_SEG! */
 #define END_BLOCK       -2
-#define BOGUS_VALUE     -4
 
 #define PERMTS_SIZE     16384   /* size of text blocks */
 #if (PERMTS_SIZE < IDLEN_MAX)
  #error "IPERMTS_SIZE must be greater than or equal to IDLEN_MAX"
 #endif
 
-/* values for label.defn.is_global */
-#define DEFINED_BIT     1
-#define GLOBAL_BIT      2
-#define EXTERN_BIT      4
-#define COMMON_BIT      8
-
-#define NOT_DEFINED_YET         0
-#define TYPE_MASK               3
-#define LOCAL_SYMBOL            (DEFINED_BIT)
-#define GLOBAL_PLACEHOLDER      (GLOBAL_BIT)
-#define GLOBAL_SYMBOL           (DEFINED_BIT | GLOBAL_BIT)
+/* string values for enum label_type */
+static const char * const types[] =
+{"local", "global", "static", "extern", "common", "special",
+ "output format special"};
 
 union label {                   /* actual label structures */
     struct {
         int32_t segment;
+        int32_t subsection;     /* Available for ofmt->herelabel() */
         int64_t offset;
-        char *label, *special;
-        int is_global, is_norm;
+        int64_t size;
+        int64_t defined;        /* 0 if undefined, passn+1 for when defn seen */
+        char *label, *mangled, *special;
+        const char *def_file;   /* Where defined */
+        int32_t def_line;
+        enum label_type type, mangled_type;
     } defn;
     struct {
         int32_t movingon;
@@ -104,9 +124,10 @@ union label {                   /* actual label structures */
 
 struct permts {                 /* permanent text storage */
     struct permts *next;        /* for the linked list */
-    int size, usage;            /* size and used space in ... */
+    unsigned int size, usage;   /* size and used space in ... */
     char data[PERMTS_SIZE];     /* ... the data block itself */
 };
+#define PERMTS_HEADER offsetof(struct permts, data)
 
 uint64_t global_offset_changed;		/* counter for global offset changes */
 
@@ -117,29 +138,76 @@ static struct permts *perm_head;        /* start of perm. text storage */
 static struct permts *perm_tail;        /* end of perm. text storage */
 
 static void init_block(union label *blk);
+static char *perm_alloc(size_t len);
 static char *perm_copy(const char *string);
+static char *perm_copy3(const char *s1, const char *s2, const char *s3);
+static const char *mangle_label_name(union label *lptr);
 
-static char *prevlabel;
+static const char *prevlabel;
 
 static bool initialized = false;
-
-char lprefix[PREFIX_MAX] = { 0 };
-char lpostfix[PREFIX_MAX] = { 0 };
 
 /*
  * Emit a symdef to the output and the debug format backends.
  */
-static void out_symdef(char *name, int32_t segment, int64_t offset,
-                       int is_global, char *special)
+static void out_symdef(union label *lptr)
 {
-    ofmt->symdef(name, segment, offset, is_global, special);
+    int backend_type;
+    int64_t backend_offset;
+
+    /* Backend-defined special segments are passed to symdef immediately */
+    if (pass0 == 2) {
+        /* Emit special fixups for globals and commons */
+        switch (lptr->defn.type) {
+        case LBL_GLOBAL:
+        case LBL_EXTERN:
+        case LBL_COMMON:
+            if (lptr->defn.special)
+                ofmt->symdef(lptr->defn.mangled, 0, 0, 3, lptr->defn.special);
+            break;
+        default:
+            break;
+        }
+        return;
+    }
+
+    if (pass0 != 1 && lptr->defn.type != LBL_BACKEND)
+        return;
+
+    /* Clean up this hack... */
+    switch(lptr->defn.type) {
+    case LBL_GLOBAL:
+    case LBL_EXTERN:
+        backend_type = 1;
+        backend_offset = lptr->defn.offset;
+        break;
+    case LBL_COMMON:
+        backend_type = 2;
+        backend_offset = lptr->defn.size;
+        break;
+    default:
+        backend_type = 0;
+        backend_offset = lptr->defn.offset;
+        break;
+    }
+
+    /* Might be necessary for a backend symbol */
+    mangle_label_name(lptr);
+
+    ofmt->symdef(lptr->defn.mangled, lptr->defn.segment,
+                 backend_offset, backend_type,
+                 lptr->defn.special);
 
     /*
      * NASM special symbols are not passed to the debug format; none
      * of the current backends want to see them.
      */
-    if (!(name[0] == '.' && name[1] == '.' && name[2] != '@'))
-        dfmt->debug_deflabel(name, segment, offset, is_global, special);
+    if (lptr->defn.type == LBL_SPECIAL || lptr->defn.type == LBL_BACKEND)
+        return;
+
+    dfmt->debug_deflabel(lptr->defn.mangled, lptr->defn.segment,
+                         lptr->defn.offset, backend_type,
+                         lptr->defn.special);
 }
 
 /*
@@ -147,37 +215,23 @@ static void out_symdef(char *name, int32_t segment, int64_t offset,
  * given label name. Creates a new one, if it isn't found, and if
  * `create' is true.
  */
-static union label *find_label(const char *label, int create, int *created)
+static union label *find_label(const char *label, bool create, bool *created)
 {
-    char *prev;
-    int prevlen, len;
     union label *lptr, **lpp;
-    char label_str[IDLEN_MAX];
+    char *label_str = NULL;
     struct hash_insert ip;
 
-    if (islocal(label)) {
-        prev = prevlabel;
-        prevlen = strlen(prev);
-        len = strlen(label);
-        if (prevlen + len >= IDLEN_MAX) {
-            nasm_error(ERR_NONFATAL, "identifier length exceed %i bytes",
-                       IDLEN_MAX);
-            return NULL;
-        }
-        memcpy(label_str, prev, prevlen);
-        memcpy(label_str+prevlen, label, len+1);
-        label = label_str;
-    } else {
-        prev = "";
-        prevlen = 0;
-    }
+    nasm_assert(label != NULL);
+
+    if (islocal(label))
+        label = label_str = nasm_strcat(prevlabel, label);
 
     lpp = (union label **) hash_find(&ltab, label, &ip);
     lptr = lpp ? *lpp : NULL;
 
     if (lptr || !create) {
         if (created)
-            *created = 0;
+            *created = false;
         return lptr;
     }
 
@@ -192,12 +246,13 @@ static union label *find_label(const char *label, int create, int *created)
     }
 
     if (created)
-        *created = 1;
+        *created = true;
 
-    lfree->admin.movingon = BOGUS_VALUE;
-    lfree->defn.label = perm_copy(label);
-    lfree->defn.special = NULL;
-    lfree->defn.is_global = NOT_DEFINED_YET;
+    nasm_zero(*lfree);
+    lfree->defn.label     = perm_copy(label);
+    lfree->defn.subsection = NO_SEG;
+    if (label_str)
+        nasm_free(label_str);
 
     hash_add(&ip, lfree->defn.label, lfree);
     return lfree++;
@@ -210,8 +265,8 @@ bool lookup_label(const char *label, int32_t *segment, int64_t *offset)
     if (!initialized)
         return false;
 
-    lptr = find_label(label, 0, NULL);
-    if (lptr && (lptr->defn.is_global & DEFINED_BIT)) {
+    lptr = find_label(label, false, NULL);
+    if (lptr && lptr->defn.defined) {
         *segment = lptr->defn.segment;
         *offset = lptr->defn.offset;
         return true;
@@ -227,197 +282,278 @@ bool is_extern(const char *label)
     if (!initialized)
         return false;
 
-    lptr = find_label(label, 0, NULL);
-    return (lptr && (lptr->defn.is_global & EXTERN_BIT));
+    lptr = find_label(label, false, NULL);
+    return lptr && lptr->defn.type == LBL_EXTERN;
 }
 
-void redefine_label(char *label, int32_t segment, int64_t offset, char *special,
-                    bool is_norm, bool isextrn)
+static const char *mangle_strings[] = {"", "", "", ""};
+static bool mangle_string_set[ARRAY_SIZE(mangle_strings)];
+
+/*
+ * Set a prefix or suffix
+ */
+void set_label_mangle(enum mangle_index which, const char *what)
 {
-    union label *lptr;
-    int exi, created;
+    if (mangle_string_set[which])
+        return;                 /* Once set, do not change */
 
-    /* This routine possibly ought to check for phase errors.  Most assemblers
-     * check for phase errors at this point.  I don't know whether phase errors
-     * are even possible, nor whether they are checked somewhere else
-     */
-
-    (void)special;              /* Don't warn that this parameter is unused */
-    (void)is_norm;              /* Don't warn that this parameter is unused */
-    (void)isextrn;              /* Don't warn that this parameter is unused */
-
-#ifdef DEBUG
-#if DEBUG < 3
-    if (!strncmp(label, "debugdump", 9))
-#endif
-        nasm_error(ERR_DEBUG, "redefine_label (%s, %"PRIx32", %"PRIx64", %s, %d, %d)",
-              label, segment, offset, special, is_norm, isextrn);
-#endif
-
-    lptr = find_label(label, 1, &created);
-    if (!lptr)
-        nasm_panic(0, "can't find label `%s' on pass two", label);
-
-    if (created)
-	    nasm_error(ERR_WARNING, "label `%s' defined on pass two", label);
-
-    if (!islocal(label)) {
-        if (!islocalchar(*label) && lptr->defn.is_norm)
-            prevlabel = lptr->defn.label;
-    }
-
-    if (lptr->defn.offset != offset)
-        global_offset_changed++;
-
-    lptr->defn.offset = offset;
-    lptr->defn.segment = segment;
-
-    if (pass0 == 1) {
-        exi = !!(lptr->defn.is_global & GLOBAL_BIT);
-        if (exi) {
-            char *xsymbol;
-            int slen;
-            slen = strlen(lprefix);
-            slen += strlen(lptr->defn.label);
-            slen += strlen(lpostfix);
-            slen++;             /* room for that null char */
-            xsymbol = nasm_malloc(slen);
-            snprintf(xsymbol, slen, "%s%s%s", lprefix, lptr->defn.label,
-                     lpostfix);
-
-            out_symdef(xsymbol, segment, offset, exi,
-                       special ? special : lptr->defn.special);
-            /**	nasm_free(xsymbol);  ! outobj.c stores the pointer; ouch!!! **/
-        } else {
-            if ((lptr->defn.is_global & (GLOBAL_BIT | EXTERN_BIT)) != EXTERN_BIT) {
-                out_symdef(lptr->defn.label, segment, offset, exi,
-                           special ? special : lptr->defn.special);
-            }
-        }
-    }   /* if (pass0 == 1) */
+    mangle_strings[which] = perm_copy(what);
+    mangle_string_set[which] = true;
 }
 
-void define_label(char *label, int32_t segment, int64_t offset, char *special,
-                  bool is_norm, bool isextrn)
+/*
+ * Format a label name with appropriate prefixes and suffixes
+ */
+static const char *mangle_label_name(union label *lptr)
 {
-    union label *lptr;
-    int exi;
+    const char *prefix;
+    const char *suffix;
 
-#ifdef DEBUG
-#if DEBUG<3
-    if (!strncmp(label, "debugdump", 9))
-#endif
-        nasm_error(ERR_DEBUG, "define_label (%s, %"PRIx32", %"PRIx64", %s, %d, %d)",
-              label, segment, offset, special, is_norm, isextrn);
-#endif
-    lptr = find_label(label, 1, NULL);
-    if (!lptr)
-        return;
-    if (lptr->defn.is_global & DEFINED_BIT) {
-        nasm_error(ERR_NONFATAL, "symbol `%s' redefined", label);
-        return;
-    }
-    lptr->defn.is_global |= DEFINED_BIT;
-    if (isextrn)
-        lptr->defn.is_global |= EXTERN_BIT;
+    if (likely(lptr->defn.mangled &&
+               lptr->defn.mangled_type == lptr->defn.type))
+        return lptr->defn.mangled; /* Already mangled */
 
-    if (!islocalchar(label[0]) && is_norm) {
-        /* not local, but not special either */
-        prevlabel = lptr->defn.label;
-    } else if (islocal(label) && !*prevlabel) {
-        nasm_error(ERR_NONFATAL, "attempt to define a local label before any"
-              " non-local labels");
+    switch (lptr->defn.type) {
+    case LBL_GLOBAL:
+    case LBL_STATIC:
+    case LBL_EXTERN:
+        prefix = mangle_strings[LM_GPREFIX];
+        suffix = mangle_strings[LM_GSUFFIX];
+        break;
+    case LBL_BACKEND:
+    case LBL_SPECIAL:
+        prefix = suffix = "";
+        break;
+    default:
+        prefix = mangle_strings[LM_LPREFIX];
+        suffix = mangle_strings[LM_LSUFFIX];
+        break;
     }
 
-    lptr->defn.segment = segment;
-    lptr->defn.offset = offset;
-    lptr->defn.is_norm = (!islocalchar(label[0]) && is_norm);
+    lptr->defn.mangled_type = lptr->defn.type;
 
-    if (pass0 == 1 || (!is_norm && !isextrn && (segment > 0) && (segment & 1))) {
-        exi = !!(lptr->defn.is_global & GLOBAL_BIT);
-        if (exi) {
-            char *xsymbol;
-            int slen;
-            slen = strlen(lprefix);
-            slen += strlen(lptr->defn.label);
-            slen += strlen(lpostfix);
-            slen++;             /* room for that null char */
-            xsymbol = nasm_malloc(slen);
-            snprintf(xsymbol, slen, "%s%s%s", lprefix, lptr->defn.label,
-                     lpostfix);
+    if (!(*prefix) && !(*suffix))
+        lptr->defn.mangled = lptr->defn.label;
+    else
+        lptr->defn.mangled = perm_copy3(prefix, lptr->defn.label, suffix);
 
-            out_symdef(xsymbol, segment, offset, exi,
-                       special ? special : lptr->defn.special);
-            /**	nasm_free(xsymbol);  ! outobj.c stores the pointer; ouch!!! **/
-        } else {
-            if ((lptr->defn.is_global & (GLOBAL_BIT | EXTERN_BIT)) != EXTERN_BIT) {
-                out_symdef(lptr->defn.label, segment, offset, exi,
-                           special ? special : lptr->defn.special);
-            }
-        }
-    }   /* if (pass0 == 1) */
+    return lptr->defn.mangled;
 }
 
-void define_common(char *label, int32_t segment, int32_t size, char *special)
+static void
+handle_herelabel(union label *lptr, int32_t *segment, int64_t *offset)
 {
-    union label *lptr;
+    int32_t oldseg;
 
-    lptr = find_label(label, 1, NULL);
-    if (!lptr)
+    if (likely(!ofmt->herelabel))
         return;
-    if ((lptr->defn.is_global & DEFINED_BIT) &&
-        (passn == 1 || !(lptr->defn.is_global & COMMON_BIT))) {
-            nasm_error(ERR_NONFATAL, "symbol `%s' redefined", label);
+
+    if (unlikely(location.segment == NO_SEG))
+        return;
+
+    oldseg = *segment;
+
+    if (oldseg == location.segment && *offset == location.offset) {
+        /* This label is defined at this location */
+        int32_t newseg;
+        bool copyoffset = false;
+
+        nasm_assert(lptr->defn.mangled);
+        newseg = ofmt->herelabel(lptr->defn.mangled, lptr->defn.type,
+                                 oldseg, &lptr->defn.subsection, &copyoffset);
+        if (likely(newseg == oldseg))
             return;
+
+        *segment = newseg;
+        if (copyoffset) {
+            /* Maintain the offset from the old to the new segment */
+            switch_segment(newseg);
+            location.offset = *offset;
+        } else {
+            /* Keep a separate offset for the new segment */
+            *offset = switch_segment(newseg);
+        }
     }
-    lptr->defn.is_global |= DEFINED_BIT|COMMON_BIT;
-
-    if (!islocalchar(label[0])) {
-        prevlabel = lptr->defn.label;
-    } else {
-        nasm_error(ERR_NONFATAL, "attempt to define a local label as a "
-              "common variable");
-        return;
-    }
-
-    lptr->defn.segment = segment;
-    lptr->defn.offset = 0;
-
-    if (pass0 == 0)
-        return;
-
-    out_symdef(lptr->defn.label, segment, size, 2,
-               special ? special : lptr->defn.special);
 }
 
-void declare_as_global(char *label, char *special)
+static bool declare_label_lptr(union label *lptr,
+                               enum label_type type, const char *special)
+{
+    if (special && !special[0])
+        special = NULL;
+
+    if (lptr->defn.type == type ||
+        (pass0 == 0 && lptr->defn.type == LBL_LOCAL)) {
+        lptr->defn.type = type;
+        if (special) {
+            if (!lptr->defn.special)
+                lptr->defn.special = perm_copy(special);
+            else if (nasm_stricmp(lptr->defn.special, special))
+                nasm_error(ERR_NONFATAL,
+                           "symbol `%s' has inconsistent attributes `%s' and `%s'",
+                           lptr->defn.label, lptr->defn.special, special);
+        }
+        return true;
+    }
+
+    /* EXTERN can be replaced with GLOBAL or COMMON */
+    if (lptr->defn.type == LBL_EXTERN &&
+        (type == LBL_GLOBAL || type == LBL_COMMON)) {
+        lptr->defn.type = type;
+        /* Override special unconditionally */
+        if (special)
+            lptr->defn.special = perm_copy(special);
+        return true;
+    }
+
+    /* GLOBAL or COMMON ignore subsequent EXTERN */
+    if ((lptr->defn.type == LBL_GLOBAL || lptr->defn.type == LBL_COMMON) &&
+        type == LBL_EXTERN) {
+        if (!lptr->defn.special)
+            lptr->defn.special = perm_copy(special);
+        return false;           /* Don't call define_label() after this! */
+    }
+
+    nasm_error(ERR_NONFATAL, "symbol `%s' declared both as %s and %s",
+               lptr->defn.label, types[lptr->defn.type], types[type]);
+
+    return false;
+}
+
+bool declare_label(const char *label, enum label_type type, const char *special)
+{
+    union label *lptr = find_label(label, true, NULL);
+    return declare_label_lptr(lptr, type, special);
+}
+
+/*
+ * The "normal" argument decides if we should update the local segment
+ * base name or not.
+ */
+void define_label(const char *label, int32_t segment,
+                  int64_t offset, bool normal)
 {
     union label *lptr;
+    bool created, changed;
+    int64_t size;
+    int64_t lastdef;
 
-    if (islocal(label)) {
-        nasm_error(ERR_NONFATAL, "attempt to declare local symbol `%s' as"
-              " global", label);
-        return;
-    }
-    lptr = find_label(label, 1, NULL);
-    if (!lptr)
-        return;
-    switch (lptr->defn.is_global & TYPE_MASK) {
-    case NOT_DEFINED_YET:
-        lptr->defn.is_global = GLOBAL_PLACEHOLDER;
-        lptr->defn.special = special ? perm_copy(special) : NULL;
-        break;
-    case GLOBAL_PLACEHOLDER:   /* already done: silently ignore */
-    case GLOBAL_SYMBOL:
-        break;
-    case LOCAL_SYMBOL:
-        if (!(lptr->defn.is_global & EXTERN_BIT)) {
-            nasm_error(ERR_WARNING, "symbol `%s': GLOBAL directive "
-                  "after symbol definition is an experimental feature", label);
-            lptr->defn.is_global = GLOBAL_SYMBOL;
+    /*
+     * The backend may invoke this before pass 1, so treat that as
+     * a special "pass".
+     */
+    const int64_t lpass = passn + 1;
+
+    /*
+     * Phase errors here can be one of two types: a new label appears,
+     * or the offset changes. Increment global_offset_changed when that
+     * happens, to tell the assembler core to make another pass.
+     */
+    lptr = find_label(label, true, &created);
+
+    lastdef = lptr->defn.defined;
+
+    if (segment) {
+        /* We are actually defining this label */
+        if (lptr->defn.type == LBL_EXTERN) {
+            /* auto-promote EXTERN to GLOBAL */
+            lptr->defn.type = LBL_GLOBAL;
+            lastdef = 0; /* We are "re-creating" this label */
         }
-        break;
+    } else {
+        /* It's a pseudo-segment (extern, common) */
+        segment = lptr->defn.segment ? lptr->defn.segment : seg_alloc();
     }
+
+    if (lastdef || lptr->defn.type == LBL_BACKEND) {
+        /*
+         * We have seen this on at least one previous pass, or
+         * potentially earlier in this same pass (in which case we
+         * will probably error out further down.)
+         */
+        mangle_label_name(lptr);
+        handle_herelabel(lptr, &segment, &offset);
+    }
+
+    if (ismagic(label) && lptr->defn.type == LBL_LOCAL)
+        lptr->defn.type = LBL_SPECIAL;
+
+    if (set_prevlabel(label) && normal)
+        prevlabel = lptr->defn.label;
+
+    if (lptr->defn.type == LBL_COMMON) {
+        size = offset;
+        offset = 0;
+    } else {
+        size = 0;               /* This is a hack... */
+    }
+
+    changed = created || !lastdef ||
+        lptr->defn.segment != segment ||
+        lptr->defn.offset != offset ||
+        lptr->defn.size != size;
+    global_offset_changed += changed;
+
+    if (lastdef == lpass) {
+        int32_t saved_line = 0;
+        const char *saved_fname = NULL;
+        int noteflags;
+
+        /*
+         * Defined elsewhere in the program, seen in this pass.
+         */
+        if (changed) {
+            nasm_error(ERR_NONFATAL,
+                       "label `%s' inconsistently redefined",
+                       lptr->defn.label);
+            noteflags = ERR_NOTE|ERR_HERE;
+        } else {
+            nasm_error(ERR_WARNING|WARN_LABEL_REDEF|ERR_PASS2,
+                       "label `%s' redefined to an identical value",
+                       lptr->defn.label);
+            noteflags = ERR_NOTE|ERR_HERE|WARN_LABEL_REDEF|ERR_PASS2;
+        }
+
+        src_get(&saved_line, &saved_fname);
+        src_set(lptr->defn.def_line, lptr->defn.def_file);
+        nasm_error(noteflags, "label `%s' originally defined",
+                   lptr->defn.label);
+        src_set(saved_line, saved_fname);
+    } else if (changed && pass0 > 1 && lptr->defn.type != LBL_SPECIAL) {
+        /*
+         * WARN_LABEL_LATE defaults to an error, as this should never
+         * actually happen.  Just in case this is a backwards
+         * compatibility problem, still make it a warning so that the
+         * user can suppress or demote it.
+         *
+         * As a special case, LBL_SPECIAL symbols are allowed to be changed
+         * even during the last pass.
+         */
+        nasm_error(ERR_WARNING|WARN_LABEL_LATE,
+                   "label `%s' %s during code generation",
+                   lptr->defn.label, created ? "defined" : "changed");
+    }
+    lptr->defn.segment = segment;
+    lptr->defn.offset  = offset;
+    lptr->defn.size    = size;
+    lptr->defn.defined = lpass;
+
+    if (changed || lastdef != lpass)
+        src_get(&lptr->defn.def_line, &lptr->defn.def_file);
+
+    if (lastdef != lpass)
+        out_symdef(lptr);
+}
+
+/*
+ * Define a special backend label
+ */
+void backend_label(const char *label, int32_t segment, int64_t offset)
+{
+    if (!declare_label(label, LBL_BACKEND, NULL))
+        return;
+
+    define_label(label, segment, offset, false);
 }
 
 int init_labels(void)
@@ -474,29 +610,56 @@ static void init_block(union label *blk)
     blk[LABEL_BLOCK - 1].admin.next = NULL;
 }
 
-static char *perm_copy(const char *string)
+static char * safe_alloc perm_alloc(size_t len)
 {
     char *p;
-    int len = strlen(string)+1;
-
-    nasm_assert(len <= PERMTS_SIZE);
 
     if (perm_tail->size - perm_tail->usage < len) {
-        perm_tail->next =
-            nasm_malloc(sizeof(struct permts));
+        size_t alloc_len = (len > PERMTS_SIZE) ? len : PERMTS_SIZE;
+        perm_tail->next = nasm_malloc(PERMTS_HEADER + alloc_len);
         perm_tail = perm_tail->next;
         perm_tail->next = NULL;
-        perm_tail->size = PERMTS_SIZE;
+        perm_tail->size = alloc_len;
         perm_tail->usage = 0;
     }
     p = perm_tail->data + perm_tail->usage;
-    memcpy(p, string, len);
     perm_tail->usage += len;
+    return p;
+}
+
+static char *perm_copy(const char *string)
+{
+    char *p;
+    size_t len;
+
+    if (!string)
+        return NULL;
+
+    len = strlen(string)+1; /* Include final NUL */
+
+    p = perm_alloc(len);
+    memcpy(p, string, len);
 
     return p;
 }
 
-char *local_scope(char *label)
+static char *
+perm_copy3(const char *s1, const char *s2, const char *s3)
+{
+    char *p;
+    size_t l1 = strlen(s1);
+    size_t l2 = strlen(s2);
+    size_t l3 = strlen(s3)+1;   /* Include final NUL */
+
+    p = perm_alloc(l1+l2+l3);
+    memcpy(p, s1, l1);
+    memcpy(p+l1, s2, l2);
+    memcpy(p+l1+l2, s3, l3);
+
+    return p;
+}
+
+const char *local_scope(const char *label)
 {
    return islocal(label) ? prevlabel : "";
 }

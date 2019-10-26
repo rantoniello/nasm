@@ -1,6 +1,6 @@
 \# --------------------------------------------------------------------------
 \#
-\#   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+\#   Copyright 1996-2018 The NASM Authors - All Rights Reserved
 \#   See the file AUTHORS included with the NASM distribution for
 \#   the specific copyright holders.
 \#
@@ -60,6 +60,7 @@
 \IR{-MP} \c{-MP} option
 \IR{-MQ} \c{-MQ} option
 \IR{-MT} \c{-MT} option
+\IR{-MW} \c{-MW} option
 \IR{-O} \c{-O} option
 \IR{-P} \c{-P} option
 \IR{-U} \c{-U} option
@@ -367,8 +368,10 @@ To get further usage instructions from NASM, try typing
 
 \c nasm -h
 
-As \c{-hf}, this will also list the available output file formats, and what they
-are.
+The option \c{--help} is an alias for the \c{-h} option.
+
+The option \c{-hf} will also list the available output file formats,
+and what they are.
 
 If you use Linux but aren't sure whether your system is \c{a.out}
 or \c{ELF}, type
@@ -493,6 +496,15 @@ updated dependencies with every assembly session.  For example:
 
 \c nasm -f elf -o myfile.o -MD myfile.dep myfile.asm
 
+If the argument after \c{-MD} is an option rather than a filename,
+then the output filename is the first applicable one of:
+
+\b the filename set in the \c{-MF} option;
+
+\b the output filename from the \c{-o} option with \c{.d} appended;
+
+\b the input filename with the extension set to \c{.d}.
+
 
 \S{opt-MT} The \i\c{-MT} Option: Dependency Target Name
 
@@ -518,6 +530,15 @@ each header file.  This prevents Make from complaining if a header
 file has been removed.
 
 
+\S{opt-MW} The \i\c{-MW} Option: Watcom Make quoting style
+
+This option causes NASM to attempt to quote dependencies according to
+Watcom Make conventions rather than POSIX Make conventions (also used
+by most other Make variants.)  This quotes \c{#} as \c{$#} rather than
+\c{\\#}, uses \c{&} rather than \c{\\} for continuation lines, and
+encloses filenames containing whitespace in double quotes.
+
+
 \S{opt-F} The \i\c{-F} Option: Selecting a \i{Debug Information Format}
 
 This option is used to select the format of the debug information
@@ -531,9 +552,8 @@ A complete list of the available debug file formats for an output
 format can be seen by issuing the command \c{nasm -f <format> -y}.  Not
 all output formats currently support debugging output.  See \k{opt-y}.
 
-This should not be confused with the \c{-f dbg} output format option which
-is not built into NASM by default. For information on how
-to enable it when building from the sources, see \k{dbgfmt}.
+This should not be confused with the \c{-f dbg} output format option,
+see \k{dbgfmt}.
 
 
 \S{opt-g} The \i\c{-g} Option: Enabling \i{Debug Information}.
@@ -617,16 +637,12 @@ library}, for example, by typing
 (As usual, a space between \c{-i} and the path name is allowed, and
 optional).
 
-NASM, in the interests of complete source-code portability, does not
-understand the file naming conventions of the OS it is running on;
-the string you provide as an argument to the \c{-i} option will be
-prepended exactly as written to the name of the include file.
-Therefore the trailing backslash in the above example is necessary.
-Under Unix, a trailing forward slash is similarly necessary.
-
-(You can use this to your advantage, if you're really \i{perverse},
-by noting that the option \c{-ifoo} will cause \c{%include "bar.i"}
-to search for the file \c{foobar.i}...)
+Prior NASM 2.14 a path provided in the option has been considered as
+a verbatim copy and providing a path separator been up to a caller.
+One could implicitly concatenate a search path together with a filename.
+Still this was rather a trick than something useful. Now the trailing
+path separator is made to always present, thus \c{-ifoo} will be
+considered as the \c{-ifoo/} directory.
 
 If you want to define a \e{standard} \i{include search path},
 similar to \c{/usr/include} on Unix systems, you should place one or
@@ -648,8 +664,11 @@ option. So running
 is equivalent to running \c{nasm myfile.asm} and placing the
 directive \c{%include "myinc.inc"} at the start of the file.
 
+\c{--include} option is also accepted.
+
 For consistency with the \c{-I}, \c{-D} and \c{-U} options, this
 option can also be specified as \c{-P}.
+
 
 
 \S{opt-d} The \i\c{-d}\I\c{-D} Option: \I{pre-defining macros}Pre-Define a Macro
@@ -727,7 +746,9 @@ with a \i{stub preprocessor} which does nothing.
 \S{opt-O} The \i\c{-O} Option: Specifying \i{Multipass Optimization}
 
 Using the \c{-O} option, you can tell NASM to carry out different
-levels of optimization.  The syntax is:
+levels of optimization. Multiple flags can be specified after the
+\c{-O} options, some of which can be combined in a single option,
+e.g. \c{-Oxv}.
 
 \b \c{-O0}: No optimization. All operands take their long forms,
         if a short form is not specified, except conditional jumps.
@@ -744,6 +765,9 @@ levels of optimization.  The syntax is:
         has been used (see \k{strict}).  For compatibility with earlier
         releases, the letter \c{x} may also be any number greater than
         one. This number has no effect on the actual number of passes.
+
+\b \c{-Ov}: At the end of assembly, print the number of passes
+        actually executed.
 
 The \c{-Ox} mode is recommended for most uses, and is the default
 since NASM 2.09.
@@ -908,13 +932,79 @@ is indicated by an asterisk. For example:
 \c     dwarf     elf32 (i386) dwarf debug format for Linux
 
 
-\S{opt-pfix} The \i\c{--prefix} and \i\c{--postfix} Options.
+\S{opt-pfix} The \i\c{--(g|l)prefix}, \i\c{--(g|l)postfix} Options.
 
-The \c{--prefix} and \c{--postfix} options prepend or append
-(respectively) the given argument to all \c{global} or
-\c{extern} variables. E.g. \c{--prefix _} will prepend the
-underscore to all global and external variables, as C requires it in
-some, but not all, system calling conventions.
+The \c{--(g)prefix} options prepend the given argument
+to all \c{extern}, \c{common}, \c{static}, and \c{global} symbols, and the
+\c{--lprefix} option prepends to all other symbols. Similarly,
+\c{--(g)postfix} and \c{--lpostfix} options append
+the argument in the exactly same way as the \c{--xxprefix} options does.
+
+Running this:
+
+\c nasm -f macho --gprefix _
+
+is equivalent to place the directive with \c{%pragma macho gprefix _}
+at the start of the file (\k{mangling}). It will prepend the underscore
+to all global and external variables, as C requires it in some, but not all,
+system calling conventions.
+
+\S{opt-pragma} The \i\c{--pragma} Option
+
+NASM accepts an argument as \c{%pragma} option, which is like placing
+a \c{%pragma} preprocess statement at the beginning of the source.
+Running this:
+
+\c nasm -f macho --pragma "macho gprefix _"
+
+is equivalent to the example in \k{opt-pfix}.
+
+
+\S{opt-before} The \i\c{--before} Option
+
+A preprocess statement can be accepted with this option. The example
+shown in \k{opt-pragma} is the same as running this:
+
+\c nasm -f macho --before "%pragma macho gprefix _"
+
+
+\S{opt-limit} The \i\c{--limit-X} Option
+
+This option allows user to setup various maximum values for these:
+
+\b\c{--limit-passes}: Number of maximum allowed passes. Default is
+effectively unlimited.
+
+\b\c{--limit-stalled-passes}: Maximum number of allowed unfinished
+passes. Default is 1000.
+
+\b\c{--limit-macro-levels}: Define maximum depth of macro expansion
+(in preprocess). Default is 1000000.
+
+\b\c{--limit-rep}: Maximum number of allowed preprocessor loop, defined
+under \c{%rep}. Default is 1000000.
+
+\b\c{--limit-eval}: This number sets the boundary condition of allowed
+expression length. Default is 1000000.
+
+\b\c{--limit-lines}: Total number of source lines as allowed to be
+processed. Default is 2000000000.
+
+In example, running this limits the maximum line count to be 1000.
+
+\c nasm --limit-lines 1000
+
+
+\S{opt-keep-all} The \i\c{--keep-all} Option
+
+This option prevents NASM from deleting any output files even if an
+error happens.
+
+\S{opt-no-line} The \i\c{--no-line} Option
+
+If this option is given, all \i\c{%line} directives in the source code
+are ignored. This can be useful for debugging already preprocessed
+code. See \k{line}.
 
 
 \S{nasmenv} The \i\c{NASMENV} \i{Environment} Variable
@@ -3669,15 +3759,6 @@ the user.  For example:
 
 \H{otherpreproc} \i{Other Preprocessor Directives}
 
-NASM also has preprocessor directives which allow access to
-information from external sources. Currently they include:
-
-\b\c{%line} enables NASM to correctly handle the output of another
-preprocessor (see \k{line}).
-
-\b\c{%!} enables NASM to read in the value of an environment variable,
-which can then be used in your program (see \k{getenv}).
-
 \S{line} \i\c{%line} Directive
 
 The \c{%line} directive is used to notify NASM that the input line
@@ -3688,9 +3769,9 @@ directive allows NASM to output messages which indicate the line
 number of the original source file, instead of the file that is being
 read by NASM.
 
-This preprocessor directive is not generally of use to programmers,
-by may be of interest to preprocessor authors.  The usage of the
-\c{%line} preprocessor directive is as follows:
+This preprocessor directive is not generally used directly by
+programmers, but may be of interest to preprocessor authors.  The
+usage of the \c{%line} preprocessor directive is as follows:
 
 \c %line nnn[+mmm] [filename]
 
@@ -3704,6 +3785,10 @@ specifies the file name of the original source file.
 After reading a \c{%line} preprocessor directive, NASM will report
 all file name and line numbers relative to the values specified
 therein.
+
+If the command line option \i\c{--no-line} is given, all \c{%line}
+directives are ignored. This may be useful for debugging preprocessed
+code. See \k{opt-no-line}.
 
 
 \S{getenv} \i\c{%!}\e{variable}: Read an Environment Variable.
@@ -3829,9 +3914,9 @@ mode-dependent macros.
 
 \S{ofmtm} \i\c{__OUTPUT_FORMAT__}: Current Output Format
 
-The \c{__OUTPUT_FORMAT__} standard macro holds the current Output Format,
-as given by the \c{-f} option or NASM's default. Type \c{nasm -hf} for a
-list.
+The \c{__OUTPUT_FORMAT__} standard macro holds the current output
+format name, as given by the \c{-f} option or NASM's default. Type
+\c{nasm -hf} for a list.
 
 \c %ifidn __OUTPUT_FORMAT__, win32
 \c  %define NEWLINE 13, 10
@@ -3839,6 +3924,15 @@ list.
 \c  %define NEWLINE 10
 \c %endif
 
+\S{dfmtm} \i\c{__DEBUG_FORMAT__}: Current Debug Format
+
+If debugging information generation is enabled, The
+\c{__DEBUG_FORMAT__} standard macro holds the current debug format
+name as specified by the \c{-F} or \c{-g} option or the output format
+default. Type \c{nasm -f} \e{output} \c{y} for a list.
+
+\c{__DEBUG_FORMAT__} is not defined if debugging is not enabled, or if
+the debug format specified is \c{null}.
 
 \S{datetime} Assembly Date and Time Macros
 
@@ -4531,8 +4625,12 @@ only in that it can take only one argument at a time: the support
 for multiple arguments is implemented at the preprocessor level.
 
 You can declare the same variable as \c{EXTERN} more than once: NASM
-will quietly ignore the second and later redeclarations. You can't
-declare a variable as \c{EXTERN} as well as something else, though.
+will quietly ignore the second and later redeclarations.
+
+If a variable is declared both \c{GLOBAL} and \c{EXTERN}, or if it is
+declared as \c{EXTERN} and then defined, it will be treated as
+\c{GLOBAL}. If a variable is declared both as \c{COMMON} and
+\c{EXTERN}, it will be treated as \c{COMMON}.
 
 
 \H{global} \i\c{GLOBAL}: \i{Exporting Symbols} to Other Modules
@@ -4542,9 +4640,6 @@ symbol as \c{EXTERN} and refers to it, then in order to prevent
 linker errors, some other module must actually \e{define} the
 symbol and declare it as \c{GLOBAL}. Some assemblers use the name
 \i\c{PUBLIC} for this purpose.
-
-The \c{GLOBAL} directive applying to a symbol must appear \e{before}
-the definition of the symbol.
 
 \c{GLOBAL} uses the same syntax as \c{EXTERN}, except that it must
 refer to symbols which \e{are} defined in the same module as the
@@ -4597,6 +4692,73 @@ specify the alignment requirements of a common variable:
 Once again, like \c{EXTERN} and \c{GLOBAL}, the primitive form of
 \c{COMMON} differs from the user-level form only in that it can take
 only one argument at a time.
+
+\H{static} \i\c{STATIC}: Local Symbols within Modules
+
+Opposite to \c{EXTERN} and \c{GLOBAL}, \c{STATIC} is local symbol, but
+should be named according to the global mangling rules (named by
+analogy with the C keyword \c{static} as applied to functions or
+global variables).
+
+\c static foo
+\c foo:
+\c          ; codes
+
+Unlike \c{GLOBAL}, \c{STATIC} does not allow object formats to accept
+private extensions mentioned in \k{global}.
+
+\H{mangling} \i\c{(G|L)PREFIX}, \i\c{(G|L)POSTFIX}: Mangling Symbols
+
+\c{PREFIX}, \c{GPREFIX}, \c{LPREFIX}, \c{POSTFIX}, \c{GPOSTFIX}, and
+\c{LPOSTFIX} directives can prepend or append the given argument to
+a certain type of symbols. The directive should be as a preprocess
+statement. Each usage is:
+
+\b\c{PREFIX}|\c{GPREFIX}: Prepend the argument to all \c{EXTERN}
+\c{COMMON}, \c{STATIC}, and \c{GLOBAL} symbols
+
+\b\c{LPREFIX}: Prepend the argument to all other symbols
+such as Local Labels, and backend defined symbols
+
+\b\c{POSTFIX}|\c{GPOSTFIX}: Append the argument to all \c{EXTERN}
+\c{COMMON}, \c{STATIC}, and \c{GLOBAL} symbols
+
+\b\c{LPOSTFIX}: Append the argument to all other symbols
+such as Local Labels, and backend defined symbols
+
+This is a macro implemented as a \c{%pragma}:
+
+\c      %pragma macho lprefix L_
+
+Commandline option is also possible. See also \k{opt-pfix}.
+
+Some toolchains is aware of a particular prefix for its own optimization
+options, such as code elimination. For instance, Mach-O backend has a
+linker that uses a simplistic naming scheme to chunk up sections into a
+meta section. When the \c{subsections_via_symbols} directive
+(\k{macho-ssvs}) is declared, each symbol is the start of a
+separate block. The meta section is, then, defined to include sections
+before the one that starts with a 'L'. \c{LPREFIX} is useful here to mark
+all local symbols with the 'L' prefix to be excluded to the meta section.
+It converts local symbols compatible with the particular toolchain.
+Note that local symbols declared with \c{STATIC} (\k{static})
+are excluded from the symbol mangling and also not marked as global.
+
+
+\H{gen-namespace} \i\c{OUTPUT}, \i\c{DEBUG}: Generic Namespaces
+
+\c{OUTPUT} and \c{DEBUG} are generic \c{%pragma} namespaces that are
+supposed to redirect to the current output and debug formats.
+For example, when mangling local symbols via the generic namespace:
+
+\c      %pragma output gprefix _
+
+This is useful when the directive is needed to be output format
+agnostic.
+
+The example is also euquivalent to this, when the output format is \c{elf}:
+
+\c      %pragma elf gprefix _
 
 
 \H{CPU} \i\c{CPU}: Defining CPU Dependencies
@@ -5188,6 +5350,14 @@ also supports default-\c{WRT} specification like \c{EXTERN} does
 \c common  baz     24:wrt data:6
 
 
+\S{objdepend} Embedded File Dependency Information
+
+Since NASM 2.13.02, \c{obj} files contain embedded dependency file
+information.  To suppress the generation of dependencies, use
+
+\c %pragma obj nodepend
+
+
 \H{win32fmt} \i\c{win32}: Microsoft Win32 Object Files
 
 The \c{win32} output format generates Microsoft Win32 object files,
@@ -5641,7 +5811,7 @@ comma.  The following flags can also be specified:
 
 \b \c{data} - this section contains initialized data items
 
-\b \c{text} - this section contains code exclusively
+\b \c{code} - this section contains code exclusively
 
 \b \c{mixed} - this section contains both code and data
 
@@ -5654,6 +5824,8 @@ comma.  The following flags can also be specified:
 \b \c{live_support} - set the live support flag for this section
 
 \b \c{strip_static_syms} - strip static symbols for this section
+
+\b \c{debug} - this section contains debugging information
 
 \b \c{align=}\e{alignment} - specify section alignment
 
@@ -5688,9 +5860,9 @@ right-hand side of the \c{WRT} operator:
 \S{macho-ssvs} \c{macho} specfic directive \i\c{subsections_via_symbols}
 
 The directive \c{subsections_via_symbols} sets the
-\c{MH_SUBSECTIONS_VIA_SYMBOLS} flag in the Mach-O header, which tells
-the linker that the symbols in the file matches the conventions
-required to allow for link-time dead code elimination.
+\c{MH_SUBSECTIONS_VIA_SYMBOLS} flag in the Mach-O header, that effectively
+separates a block (or a subsection) based on a symbol. It is often used
+for eliminating dead codes by a linker.
 
 This directive takes no arguments.
 
@@ -5712,6 +5884,19 @@ non-Mach-O builds of the same source code:
 
 \c      %pragma macho no_dead_strip symbol...
 
+\S{macho-pext} \c{macho} specific extensions to the \c{GLOBAL}
+Directive: \i\c{private_extern}
+
+The directive extension to \c{GLOBAL} marks the symbol with limited
+global scope. For example, you can specify the global symbol with
+this extension:
+
+\c global foo:private_extern
+\c foo:
+\c          ; codes
+
+Using with static linker will clear the private extern attribute.
+But linker option like \c{-keep_private_externs} can avoid it.
 
 \H{elffmt} \i\c{elf32}, \i\c{elf64}, \i\c{elfx32}: \I{ELF}\I{linux, elf}\i{Executable and Linkable
 Format} Object Files
@@ -7685,10 +7870,15 @@ platforms pass arguments in registers rather than on the stack.
 Furthermore, 64-bit platforms use SSE2 by default for floating point.
 Please see the ABI documentation for your platform.
 
-64-bit platforms differ in the sizes of the fundamental datatypes, not
-just from 32-bit platforms but from each other.  If a specific size
-data type is desired, it is probably best to use the types defined in
-the Standard C header \c{<inttypes.h>}.
+64-bit platforms differ in the sizes of the C/C++ fundamental
+datatypes, not just from 32-bit platforms but from each other.  If a
+specific size data type is desired, it is probably best to use the
+types defined in the standard C header \c{<inttypes.h>}.
+
+All known 64-bit platforms except some embedded platforms require that
+the stack is 16-byte aligned at the entry to a function.  In order to
+enforce that, the stack pointer (\c{RSP}) needs to be aligned on an
+\c{odd} multiple of 8 bytes before the \c{CALL} instruction.
 
 In 64-bit mode, the default instruction size is still 32 bits.  When
 loading a value into a 32-bit register (but not an 8- or 16-bit
@@ -7736,12 +7926,30 @@ immediate as \c{DWORD}:
 
 The length of these instructions are 10, 5 and 7 bytes, respectively.
 
+If optimization is enabled and NASM can determine at assembly time
+that a shorter instruction will suffice, the shorter instruction will
+be emitted unless of course \c{STRICT QWORD} or \c{STRICT DWORD} is
+specified (see \k{strict}):
+
+\c      mov rax,1		; Assembles as "mov eax,1" (5 bytes)
+\c      mov rax,strict qword 1  ; Full 10-byte instruction
+\c	mov rax,strict dword 1	; 7-byte instruction
+\c      mov rax,symbol          ; 10 bytes, not known at assembly time
+\c      lea rax,[rel symbol]    ; 7 bytes, usually preferred by the ABI
+
+Note that \c{lea rax,[rel symbol]} is position-independent, whereas
+\c{mov rax,symbol} is not.  Most ABIs prefer or even require
+position-independent code in 64-bit mode.  However, the \c{MOV}
+instruction is able to reference a symbol anywhere in the 64-bit
+address space, whereas \c{LEA} is only able to access a symbol within
+within 2 GB of the instruction itself (see below.)
+
 The only instructions which take a full \I{64-bit displacement}64-bit
 \e{displacement} is loading or storing, using \c{MOV}, \c{AL}, \c{AX},
 \c{EAX} or \c{RAX} (but no other registers) to an absolute 64-bit address.
 Since this is a relatively rarely used instruction (64-bit code generally uses
 relative addressing), the programmer has to explicitly declare the
-displacement size as \c{QWORD}:
+displacement size as \c{ABS QWORD}:
 
 \c      default abs
 \c
@@ -7778,9 +7986,11 @@ calls, and thus are available for use by the function without saving.
 Integer return values are passed in \c{RAX} and \c{RDX}, in that order.
 
 Floating point is done using SSE registers, except for \c{long
-double}.  Floating-point arguments are passed in \c{XMM0} to \c{XMM7};
-return is \c{XMM0} and \c{XMM1}.  \c{long double} are passed on the
-stack, and returned in \c{ST0} and \c{ST1}.
+double}, which is 80 bits (\c{TWORD}) on most platforms (Android is
+one exception; there \c{long double} is 64 bits and treated the same
+as \c{double}.)  Floating-point arguments are passed in \c{XMM0} to
+\c{XMM7}; return is \c{XMM0} and \c{XMM1}.  \c{long double} are passed
+on the stack, and returned in \c{ST0} and \c{ST1}.
 
 All SSE and x87 registers are destroyed by function calls.
 

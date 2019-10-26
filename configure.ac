@@ -1,6 +1,6 @@
-dnl Process this file with autoconf 2.63 or later to produce
+dnl Process this file with autoconf 2.69 or later to produce
 dnl a configure script.
-AC_PREREQ(2.63)
+AC_PREREQ(2.69)
 AC_INIT(config/config.h.in)
 AC_CONFIG_HEADERS(config/config.h)
 
@@ -29,8 +29,26 @@ dnl to either -O3 (normal) or -O0 (for debugging)
 PA_ARG_DISABLED([optimization],
  [compile without optimization (-O0) to help debugging],
  [pa_optimize=-O0], [pa_optimize=-O3])
+
+dnl Compile and link with dwarf debug
+PA_ARG_ENABLED([gdb],
+ [disable optimization and compile with extra debug information for GDB debugger],
+ [pa_optimize='-O0'
+  PA_ADD_CFLAGS([-ggdb3])
+ ])
+
 AS_IF([test x"$pa_init_cflags" = x],
       [CFLAGS=`echo "$CFLAGS" | sed -e "s/-O2/$pa_optimize/"`])
+
+AS_IF([test x"$pa_optimize" = "x-O0"],
+      [PA_ADD_CFLAGS([-fno-omit-frame-pointer])])
+
+dnl Abort on panic
+PA_ARG_ENABLED([panic-abort],
+ [call abort() on panic to trap in the debugger],
+ [AC_DEFINE(ABORT_ON_PANIC)])
+AH_TEMPLATE(ABORT_ON_PANIC,
+[Define to 1 to call abort() on panics (internal errors), for debugging.])
 
 dnl Check for library extension
 PA_LIBEXT
@@ -88,7 +106,6 @@ AC_CHECK_HEADERS(stdnoreturn.h)
 AC_CHECK_HEADERS(io.h)
 AC_CHECK_HEADERS(fcntl.h)
 AC_CHECK_HEADERS(unistd.h)
-AC_CHECK_HEADERS(endian.h sys/endian.h machine/endian.h)
 AC_CHECK_HEADERS(sys/mman.h)
 AC_CHECK_HEADERS(sys/types.h)
 AC_CHECK_HEADERS(sys/stat.h)
@@ -98,6 +115,7 @@ AC_CHECK_FUNCS(strcasecmp stricmp)
 AC_CHECK_FUNCS(strncasecmp strnicmp)
 AC_CHECK_FUNCS(strsep)
 AC_CHECK_FUNCS(strnlen)
+AC_CHECK_FUNCS(strrchrnul)
 
 AC_CHECK_FUNCS(getuid)
 AC_CHECK_FUNCS(getgid)
@@ -129,10 +147,11 @@ PA_HAVE_FUNC(__builtin_clzll, (0ULL))
 PA_HAVE_FUNC(_BitScanReverse, (0))
 PA_HAVE_FUNC(_BitScanReverse64, (0))
 
-dnl Functions for which we have replacements available in lib/
+dnl Functions for which we have replacements available in stdlib/
 AC_CHECK_FUNCS([vsnprintf _vsnprintf])
 AC_CHECK_FUNCS([snprintf _snprintf])
 AC_CHECK_FUNCS([strlcpy])
+AC_CHECK_FUNCS([strrchrnul])
 
 dnl These types are POSIX-specific, and Windows does it differently...
 AC_CHECK_TYPES([struct _stati64])
@@ -150,6 +169,7 @@ AC_CHECK_DECLS(strnicmp)
 AC_CHECK_DECLS(strsep)
 AC_CHECK_DECLS(strlcpy)
 AC_CHECK_DECLS(strnlen)
+AC_CHECK_DECLS(strrchrnul)
 
 dnl Check for missing types
 AC_TYPE_UINTPTR_T
@@ -165,6 +185,7 @@ AC_SUBST([PDFOPT])
 dnl
 dnl Look for byte-swapping support...
 dnl
+PA_ADD_HEADERS(endian.h sys/endian.h machine/endian.h)
 PA_HAVE_FUNC(cpu_to_le16, (0))
 PA_HAVE_FUNC(cpu_to_le32, (0))
 PA_HAVE_FUNC(cpu_to_le64, (0))
@@ -185,6 +206,11 @@ PA_HAVE_FUNC(_byteswap_ulong, (0))
 PA_HAVE_FUNC(_byteswap_uint64, (0))
 
 dnl
+dnl Check for __builtin_constant_p()
+dnl
+PA_HAVE_FUNC(__builtin_constant_p, (0))
+
+dnl
 dnl Check for supported gcc attributes; some compilers (e.g. Sun CC)
 dnl support these, but don't define __GNUC__ as they don't support
 dnl some other features of gcc.
@@ -194,13 +220,15 @@ PA_FUNC_ATTRIBUTE(noreturn)
 PA_FUNC_ATTRIBUTE(returns_nonnull)
 PA_FUNC_ATTRIBUTE(malloc)
 PA_FUNC_ATTRIBUTE(alloc_size, (1))
+PA_FUNC_ATTRIBUTE(sentinel,,, [const char *, ...], ["a","b",NULL])
 PA_FUNC_ATTRIBUTE(format, [(printf,1,2)], int, [const char *, ...], ["%d",1])
 PA_FUNC_ATTRIBUTE(const)
 PA_FUNC_ATTRIBUTE(pure)
+PA_FUNC_ATTRIBUTE(cold)
 PA_FUNC_ATTRIBUTE_ERROR
 
 dnl
-dnl support function sections
+dnl support function sections (if available)
 dnl
 PA_ARG_ENABLED([sections],
  [compile with function/data section support],
@@ -208,6 +236,7 @@ PA_ARG_ENABLED([sections],
   PA_ADD_CLDFLAGS([-fdata-sections])
   PA_ADD_CLDFLAGS([-Wl,--gc-sections])],
  [])
+
 dnl
 dnl support LTO
 dnl
@@ -222,6 +251,21 @@ PA_ARG_ENABLED([lto],
   AC_CHECK_PROGS(CC_RANLIB, [${ccbase}-ranlib], [$ac_cv_prog_RANLIB])
   RANLIB="$CC_RANLIB"], [])
 
+dnl
+dnl support sanitizers (if available)
+dnl
+PA_ARG_ENABLED([sanitizer],
+ [compile with sanitizers enabled],
+ [PA_ADD_CFLAGS([-fno-omit-frame-pointer])
+  PA_ADD_CLDFLAGS([-fsanitize=address])
+  PA_ADD_CLDFLAGS([-fsanitize=undefined])])
+
+dnl
+dnl Don't make symbols visible, there is no point and it just
+dnl makes the code slower.
+dnl
+PA_ADD_CLDFLAGS([-fvisibility=hidden])
+
 dnl If we have gcc, add appropriate code cleanliness options
 PA_ADD_CFLAGS([-W])
 PA_ADD_CFLAGS([-Wall])
@@ -234,6 +278,14 @@ dnl Suppress format warning on Windows targets due to their <inttypes.h>
 PA_ADD_CFLAGS([-Wpedantic-ms-format],[-Wno-pedantic-ms-format])
 PA_ADD_CFLAGS([-Wc90-c99-compat])
 PA_ADD_CFLAGS([-Wlong-long],[-Wno-long-long])
+dnl This is needed because we intentionally expect strncpy() to fill
+dnl in a zero-padded (not zero-terminated) buffer in several backends
+PA_ADD_CFLAGS([-Wstringop-truncation],[-Wno-stringop-truncation])
+dnl This is needed because we assume 2's-completement signed arithmetic;
+dnl on compilers with gcc-like command line syntax we pass the -fwrapv
+dnl option for exactly that reason.
+PA_ADD_CFLAGS([-Wshift-negative-value],[-Wno-shift-negative-value])
+
 dnl PA_ADD_CFLAGS([-Wwrite-strings])
 PA_ARG_ENABLED([werror],
  [compile with -Werror to error out on any warning],
@@ -249,6 +301,13 @@ PA_ARG_ENABLED([werror],
   PA_ADD_CFLAGS([-Werror=comment])
   PA_ADD_CFLAGS([-Werror=vla])]
 )
+
+dnl
+dnl On some versions of gcc, -Werror=missing-prototypes causes problems
+dnl with C99-style external inlines.  Test this *after* adding the -Werror
+dnl options.
+dnl
+PA_CHECK_BAD_STDC_INLINE
 
 dnl
 dnl support ccache

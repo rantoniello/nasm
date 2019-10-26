@@ -155,6 +155,10 @@ int vsnprintf(char *, size_t, const char *, va_list);
 size_t strlcpy(char *, const char *, size_t);
 #endif
 
+#if !defined(HAVE_STRCHRNUL) || !HAVE_DECL_STRCHRNUL
+char *strrchrnul(const char *, int);
+#endif
+
 #ifndef __cplusplus		/* C++ has false, true, bool as keywords */
 # ifdef HAVE_STDBOOL_H
 #  include <stdbool.h>
@@ -208,6 +212,35 @@ size_t strnlen(const char *s, size_t maxlen);
 #endif
 
 /*
+ * Hack to support external-linkage inline functions
+ */
+#ifndef HAVE_STDC_INLINE
+# ifdef __GNUC__
+#  ifdef __GNUC_STDC_INLINE__
+#   define HAVE_STDC_INLINE
+#  else
+#   define HAVE_GNU_INLINE
+#  endif
+# elif defined(__GNUC_GNU_INLINE__)
+/* Some other compiler implementing only GNU inline semantics? */
+#   define HAVE_GNU_INLINE
+# elif defined(__STDC_VERSION__)
+#  if __STDC_VERSION__ >= 199901L
+#   define HAVE_STDC_INLINE
+#  endif
+# endif
+#endif
+
+#ifdef HAVE_STDC_INLINE
+# define extern_inline inline
+#elif defined(HAVE_GNU_INLINE)
+# define extern_inline extern inline
+# define inline_prototypes
+#else
+# define inline_prototypes
+#endif
+
+/*
  * Hints to the compiler that a particular branch of code is more or
  * less likely to be taken.
  */
@@ -231,17 +264,23 @@ size_t strnlen(const char *s, size_t maxlen);
 #ifdef HAVE_FUNC_ATTRIBUTE_MALLOC
 # define safe_alloc never_null __attribute__((malloc))
 #else
-# define safe_alloc
+# define safe_alloc never_null
 #endif
 
 #ifdef HAVE_FUNC_ATTRIBUTE_ALLOC_SIZE
-#   define safe_malloc(s) safe_alloc __attribute__((alloc_size(s)))
-#   define safe_malloc2(s1,s2) safe_alloc __attribute__((alloc_size(s1,s2)))
-#   define safe_realloc(s) never_null __attribute__((alloc_size(s)))
+# define safe_malloc(s) safe_alloc __attribute__((alloc_size(s)))
+# define safe_malloc2(s1,s2) safe_alloc __attribute__((alloc_size(s1,s2)))
+# define safe_realloc(s) never_null __attribute__((alloc_size(s)))
 #else
 # define safe_malloc(s) safe_alloc
 # define safe_malloc2(s1,s2) safe_alloc
 # define safe_realloc(s) never_null
+#endif
+
+#ifdef HAVE_FUNC_ATTRIBUTE_SENTINEL
+# define end_with_null __attribute__((sentinel))
+#else
+# define end_with_null
 #endif
 
 /*
@@ -257,6 +296,22 @@ size_t strnlen(const char *s, size_t maxlen);
 #else
 # define no_return void
 #endif
+
+/*
+ * How to tell the compiler that a function is unlikely to be executed.
+ * This differs from unlikely() in that it is applied to a function call,
+ * not a boolean condition.
+ */
+#ifdef HAVE_FUNC_ATTRIBUTE_COLD
+# define unlikely_func __attribute__((cold))
+#else
+# define unlikely_func
+#endif
+
+/*
+ * A fatal function is both unlikely and no_return
+ */
+#define fatal_func no_return unlikely_func
 
 /*
  * How to tell the compiler that a function takes a printf-like string
@@ -286,6 +341,13 @@ size_t strnlen(const char *s, size_t maxlen);
 # define pure_func __attribute__((pure))
 #else
 # define pure_func
+#endif
+
+/* Determine probabilistically if something is a compile-time constant */
+#ifdef HAVE___BUILTIN_CONSTANT_P
+# define is_constant(x) __builtin_constant_p(x)
+#else
+# define is_constant(x) false
 #endif
 
 /* Watcom doesn't handle switch statements with 64-bit types, hack around it */

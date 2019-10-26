@@ -198,15 +198,15 @@ static void aoutb_init(void)
     is_pic = 0x00;              /* may become 0x40 */
 
     aout_gotpc_sect = seg_alloc();
-    define_label("..gotpc", aout_gotpc_sect + 1, 0L, NULL, false, false);
+    backend_label("..gotpc", aout_gotpc_sect + 1, 0L);
     aout_gotoff_sect = seg_alloc();
-    define_label("..gotoff", aout_gotoff_sect + 1, 0L, NULL, false, false);
+    backend_label("..gotoff", aout_gotoff_sect + 1, 0L);
     aout_got_sect = seg_alloc();
-    define_label("..got", aout_got_sect + 1, 0L, NULL, false, false);
+    backend_label("..got", aout_got_sect + 1, 0L);
     aout_plt_sect = seg_alloc();
-    define_label("..plt", aout_plt_sect + 1, 0L, NULL, false, false);
+    backend_label("..plt", aout_plt_sect + 1, 0L);
     aout_sym_sect = seg_alloc();
-    define_label("..sym", aout_sym_sect + 1, 0L, NULL, false, false);
+    backend_label("..sym", aout_sym_sect + 1, 0L);
 }
 
 #endif
@@ -894,11 +894,6 @@ static int32_t aout_segbase(int32_t segment)
     return segment;
 }
 
-static void aout_filename(char *inname, char *outname)
-{
-    standard_extension(inname, outname, ".o");
-}
-
 extern macros_t aout_stdmac[];
 
 #endif                          /* OF_AOUT || OF_AOUTB */
@@ -908,20 +903,22 @@ extern macros_t aout_stdmac[];
 const struct ofmt of_aout = {
     "Linux a.out object files",
     "aout",
+    ".o",
     0,
     32,
     null_debug_arr,
     &null_debug_form,
     aout_stdmac,
     aout_init,
+    null_reset,
     nasm_do_legacy_output,
     aout_out,
     aout_deflabel,
     aout_section_names,
+    NULL,
     null_sectalign,
     aout_segbase,
     null_directive,
-    aout_filename,
     aout_cleanup,
     NULL                        /* pragma list */
 };
@@ -933,20 +930,22 @@ const struct ofmt of_aout = {
 const struct ofmt of_aoutb = {
     "NetBSD/FreeBSD a.out object files",
     "aoutb",
+    ".o",
     0,
     32,
     null_debug_arr,
     &null_debug_form,
     aout_stdmac,
     aoutb_init,
+    null_reset,
     nasm_do_legacy_output,
     aout_out,
     aout_deflabel,
     aout_section_names,
+    NULL,
     null_sectalign,
     aout_segbase,
     null_directive,
-    aout_filename,
     aout_cleanup,
     NULL                        /* pragma list */
 };

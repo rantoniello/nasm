@@ -21,6 +21,7 @@ enum directive {
     D_EXTERN,
     D_FLOAT,
     D_GLOBAL,
+    D_STATIC,
     D_LIST,
     D_SECTION,
     D_SEGMENT,
@@ -37,13 +38,22 @@ enum directive {
     D_OSABI,
     D_SAFESEH,
     D_UPPERCASE,
+    D_PREFIX,
+    D_SUFFIX,
+    D_GPREFIX,
+    D_GSUFFIX,
+    D_LPREFIX,
+    D_LSUFFIX,
+    D_LIMIT,
     D_SUBSECTIONS_VIA_SYMBOLS,
     D_NO_DEAD_STRIP,
-    D_MAXDUMP
+    D_MAXDUMP,
+    D_NODEPEND,
+    D_NOSECLABELS
 };
 
 extern const struct perfect_hash directive_hash;
-extern const char * const directive_tbl[28];
+extern const char * const directive_tbl[38];
 
 static inline enum directive directive_find(const char *str)
 {
@@ -53,7 +63,7 @@ static inline enum directive directive_find(const char *str)
 static inline const char * directive_name(enum directive x)
 {
     size_t ix = (size_t)x - (3);
-    if (ix >= 28)
+    if (ix >= 38)
         return NULL;
     return directive_tbl[ix];
 }

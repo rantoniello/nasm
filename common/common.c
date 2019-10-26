@@ -62,32 +62,3 @@ const char *prefix_name(int token)
 
     return prefix_names[prefix];
 }
-
-/*
- * initialized data bytes length from opcode
- */
-int idata_bytes(int opcode)
-{
-    switch (opcode) {
-    case I_DB:
-        return 1;
-    case I_DW:
-        return 2;
-    case I_DD:
-        return 4;
-    case I_DQ:
-        return 8;
-    case I_DT:
-        return 10;
-    case I_DO:
-        return 16;
-    case I_DY:
-        return 32;
-    case I_DZ:
-        return 64;
-    case I_none:
-        return -1;
-    default:
-        return 0;
-    }
-}

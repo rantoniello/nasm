@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -45,6 +45,7 @@
 
 #include "nasm.h"
 #include "nasmlib.h"
+#include "ilog2.h"
 #include "error.h"
 #include "eval.h"
 #include "labels.h"
@@ -71,6 +72,7 @@ static void *scpriv;
 static int *opflags;
 
 static struct eval_hints *hint;
+static int64_t deadman;
 
 
 /*
@@ -578,7 +580,7 @@ static expr *expr5(int critical)
                   " scalar values");
             return NULL;
         }
-        if (j != '*' && !is_unknown(f) && reloc_value(f) == 0) {
+        if (j != '*' && !is_just_unknown(f) && reloc_value(f) == 0) {
             nasm_error(ERR_NONFATAL, "division by zero");
             return NULL;
         }
@@ -766,7 +768,12 @@ static expr *expr6(int critical)
     int64_t label_ofs;
     int64_t tmpval;
     bool rn_warn;
-    char *scope;
+    const char *scope;
+
+    if (++deadman > nasm_limit[LIMIT_EVAL]) {
+        nasm_error(ERR_NONFATAL, "expression too long");
+        return NULL;
+    }
 
     switch (i) {
     case '-':
@@ -953,6 +960,8 @@ expr *evaluate(scanner sc, void *scprivate, struct tokenval *tv,
     expr *e;
     expr *f = NULL;
 
+    deadman = 0;
+    
     hint = hints;
     if (hint)
         hint->type = EAH_NOHINT;

@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -79,6 +79,8 @@ void * safe_realloc(2) nasm_realloc(void *, size_t);
 void nasm_free(void *);
 char * safe_alloc nasm_strdup(const char *);
 char * safe_alloc nasm_strndup(const char *, size_t);
+char * safe_alloc nasm_strcat(const char *one, const char *two);
+char * safe_alloc end_with_null nasm_strcatn(const char *one, ...);
 
 /* Assert the argument is a pointer without evaluating it */
 #define nasm_assert_pointer(p) ((void)sizeof(*(p)))
@@ -111,7 +113,7 @@ void nasm_write(const void *, size_t, FILE *);
 /*
  * NASM assert failure
  */
-no_return nasm_assert_failed(const char *, int, const char *);
+fatal_func nasm_assert_failed(const char *, int, const char *);
 #define nasm_assert(x)                                          \
     do {                                                        \
         if (unlikely(!(x)))                                     \
@@ -178,7 +180,7 @@ size_t pure_func strnlen(const char *, size_t);
  * Convert a string into a number, using NASM number rules. Sets
  * `*error' to true if an error occurs, and false otherwise.
  */
-int64_t readnum(char *str, bool *error);
+int64_t readnum(const char *str, bool *error);
 
 /*
  * Convert a character constant into a number. Sets
@@ -189,17 +191,14 @@ int64_t readnum(char *str, bool *error);
 int64_t readstrnum(char *str, int length, bool *warn);
 
 /*
- * seg_init: Initialise the segment-number allocator.
  * seg_alloc: allocate a hitherto unused segment number.
  */
-void pure_func seg_init(void);
-int32_t pure_func seg_alloc(void);
+int32_t seg_alloc(void);
 
 /*
- * many output formats will be able to make use of this: a standard
- * function to add an extension to the name of the input file
+ * Add/replace or remove an extension to the end of a filename
  */
-void standard_extension(char *inname, char *outname, char *extension);
+const char *filename_set_extension(const char *inname, const char *extension);
 
 /*
  * Utility macros...
@@ -285,8 +284,6 @@ void src_set(int32_t line, const char *filename);
  */
 int32_t src_get(int32_t *xline, const char **xname);
 
-char *nasm_strcat(const char *one, const char *two);
-
 char *nasm_skip_spaces(const char *p);
 char *nasm_skip_word(const char *p);
 char *nasm_zap_spaces_fwd(char *p);
@@ -353,6 +350,7 @@ const void *nasm_map_file(FILE *fp, off_t start, off_t len);
 void nasm_unmap_file(const void *p, size_t len);
 off_t nasm_file_size(FILE *f);
 off_t nasm_file_size_by_path(const char *pathname);
+bool nasm_file_time(time_t *t, const char *pathname);
 void fwritezero(off_t bytes, FILE *fp);
 
 static inline bool const_func overflow_general(int64_t value, int bytes)
@@ -365,7 +363,7 @@ static inline bool const_func overflow_general(int64_t value, int bytes)
 
     sbit = (bytes << 3) - 1;
     vmax =  ((int64_t)2 << sbit) - 1;
-    vmin = -((int64_t)1 << sbit);
+    vmin = -((int64_t)2 << sbit);
 
     return value < vmin || value > vmax;
 }
@@ -410,21 +408,7 @@ static inline int64_t const_func signed_bits(int64_t value, int bits)
     return value;
 }
 
-int const_func idata_bytes(int opcode);
-
 /* check if value is power of 2 */
 #define is_power2(v)   ((v) && ((v) & ((v) - 1)) == 0)
-
-/*
- * floor(log2(v))
- */
-int const_func ilog2_32(uint32_t v);
-int const_func ilog2_64(uint64_t v);
-
-/*
- * v == 0 ? 0 : is_power2(x) ? ilog2_X(v) : -1
- */
-int const_func alignlog2_32(uint32_t v);
-int const_func alignlog2_64(uint64_t v);
 
 #endif

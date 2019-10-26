@@ -1,14 +1,15 @@
 # -*- coding: utf-8 -*-
-%define nasm_version 2.14rc0
+%define nasm_version 2.14.02
 Summary: The Netwide Assembler, a portable x86 assembler with Intel-like syntax
 Name: nasm
-Version: 2.13.99.90
+Version: 2.14.02
 Release: 0%{?dist}
 License: BSD
 Source: http://www.nasm.us/pub/nasm/releasebuilds/%{nasm_version}/nasm-%{nasm_version}.tar.xz
 URL: http://www.nasm.us/
 BuildRoot: /tmp/rpm-build-nasm
 Prefix: %{_prefix}
+BuildRequires: perl(bytes)
 BuildRequires: perl(Fcntl)
 BuildRequires: perl(File::Basename)
 BuildRequires: perl(File::Compare)
@@ -16,18 +17,18 @@ BuildRequires: perl(File::Copy)
 BuildRequires: perl(File::Find)
 BuildRequires: perl(File::Path)
 BuildRequires: perl(File::Spec)
+BuildRequires: perl(File::Temp)
 BuildRequires: perl(Font::TTF::Cmap)
 BuildRequires: perl(Font::TTF::Font)
 BuildRequires: perl(Font::TTF::Head)
 BuildRequires: perl(Font::TTF::Hmtx)
 BuildRequires: perl(Font::TTF::Maxp)
-BuildRequires: perl(Font::TTF::PSNames)
 BuildRequires: perl(Font::TTF::Post)
+BuildRequires: perl(Font::TTF::PSNames)
 BuildRequires: perl(Getopt::Long)
 BuildRequires: perl(Pod::Usage)
-BuildRequires: perl(Sort::Versions)
-BuildRequires: perl(bytes)
 BuildRequires: perl(sort)
+BuildRequires: perl(Sort::Versions)
 BuildRequires: autoconf
 BuildRequires: asciidoc
 BuildRequires: xmlto
@@ -72,7 +73,7 @@ xz -9ef doc/nasmdoc.pdf
 rm -rf "%{buildroot}"
 mkdir -p "%{buildroot}"/%{_bindir}
 mkdir -p "%{buildroot}"/%{_mandir}/man1
-make INSTALLROOT="%{buildroot}" install install_rdf
+make DESTDIR="%{buildroot}" install install_rdf
 
 %files
 %doc AUTHORS CHANGES README TODO

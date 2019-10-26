@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -49,6 +49,9 @@
 #include "assemble.h"
 #include "error.h"
 
+static enum directive_result output_pragma(const struct pragma *pragma);
+static enum directive_result limit_pragma(const struct pragma *pragma);
+
 /*
  * Handle [pragma] directives.  [pragma] is generally produced by
  * the %pragma preprocessor directive, which simply passes on any
@@ -64,6 +67,7 @@
  * so far none of these have any defined pragmas at all:
  *
  * preproc	- preprocessor
+ * limit	- limit setting
  * asm		- assembler
  * list		- listing generator
  * file		- generic file handling
@@ -83,13 +87,16 @@
  */
 static struct pragma_facility global_pragmas[] =
 {
-    { "preproc",	NULL }, /* This shouldn't happen... */
     { "asm",		NULL },
+    { "limit",          limit_pragma },
     { "list",		NULL },
     { "file",		NULL },
     { "input",		NULL },
+
+    /* None of these should actually happen due to special handling */
+    { "preproc",	NULL }, /* Handled in the preprocessor by necessity */
     { "output",		NULL },
-    { "debug",		NULL },
+    { "debug",	        NULL },
     { "ignore",		NULL },
     { NULL, NULL }
 };
@@ -103,6 +110,7 @@ static struct pragma_facility global_pragmas[] =
  */
 static bool search_pragma_list(const struct pragma_facility *list,
                                const char *default_name,
+                               pragma_handler generic_handler,
 			       struct pragma *pragma)
 {
     const struct pragma_facility *pf;
@@ -130,15 +138,19 @@ found_it:
     else
         rv = DIRR_UNKNOWN;
 
+    /* Is there an additional, applicable generic handler? */
+    if (rv == DIRR_UNKNOWN && generic_handler)
+        rv = generic_handler(pragma);
+
     switch (rv) {
     case DIRR_UNKNOWN:
         switch (pragma->opcode) {
         case D_none:
-            nasm_error(ERR_WARNING|ERR_PASS2|ERR_WARN_BAD_PRAGMA,
+            nasm_error(ERR_WARNING|ERR_PASS2|WARN_BAD_PRAGMA,
                        "empty %%pragma %s", pragma->facility_name);
             break;
         default:
-            nasm_error(ERR_WARNING|ERR_PASS2|ERR_WARN_UNKNOWN_PRAGMA,
+            nasm_error(ERR_WARNING|ERR_PASS2|WARN_UNKNOWN_PRAGMA,
                        "unknown %%pragma %s %s",
                        pragma->facility_name, pragma->opname);
             break;
@@ -173,7 +185,7 @@ void process_pragma(char *str)
 
     pragma.facility_name = nasm_get_word(str, &p);
     if (!pragma.facility_name) {
-	nasm_error(ERR_WARNING|ERR_PASS2|ERR_WARN_BAD_PRAGMA,
+	nasm_error(ERR_WARNING|ERR_PASS2|WARN_BAD_PRAGMA,
 		   "empty pragma directive");
         return;                 /* Empty pragma */
     }
@@ -185,24 +197,34 @@ void process_pragma(char *str)
     if (!nasm_stricmp(pragma.facility_name, "ignore"))
         return;
 
+    /*
+     * The "output" and "debug" facilities are aliases for the
+     * current output and debug formats, respectively.
+     */
+    if (!nasm_stricmp(pragma.facility_name, "output"))
+        pragma.facility_name = ofmt->shortname;
+    if (!nasm_stricmp(pragma.facility_name, "debug"))
+        pragma.facility_name = dfmt->shortname;
+
     pragma.opname = nasm_get_word(p, &p);
     if (!pragma.opname)
         pragma.opcode = D_none;
     else
         pragma.opcode = directive_find(pragma.opname);
 
-    pragma.tail = nasm_skip_spaces(p);
+    pragma.tail = nasm_trim_spaces(p);
 
     /* Look for a global pragma namespace */
-    if (search_pragma_list(global_pragmas, NULL, &pragma))
+    if (search_pragma_list(global_pragmas, NULL, NULL, &pragma))
 	return;
 
     /* Look to see if it is an output backend pragma */
-    if (search_pragma_list(ofmt->pragmas, ofmt->shortname, &pragma))
+    if (search_pragma_list(ofmt->pragmas, ofmt->shortname,
+                           output_pragma, &pragma))
 	return;
 
     /* Look to see if it is a debug format pragma */
-    if (search_pragma_list(dfmt->pragmas, dfmt->shortname, &pragma))
+    if (search_pragma_list(dfmt->pragmas, dfmt->shortname, NULL, &pragma))
 	return;
 
     /*
@@ -215,4 +237,38 @@ void process_pragma(char *str)
      * Leave this for the future, however, the warning classes are
      * already defined for future compatibility.
      */
+}
+
+/*
+ * Generic pragmas that apply to all output backends; these are handled
+ * specially so they can be made selective based on the output format.
+ */
+static enum directive_result output_pragma(const struct pragma *pragma)
+{
+    switch (pragma->opcode) {
+    case D_PREFIX:
+    case D_GPREFIX:
+        set_label_mangle(LM_GPREFIX, pragma->tail);
+        return DIRR_OK;
+    case D_SUFFIX:
+    case D_GSUFFIX:
+        set_label_mangle(LM_GSUFFIX, pragma->tail);
+        return DIRR_OK;
+    case D_LPREFIX:
+        set_label_mangle(LM_LPREFIX, pragma->tail);
+        return DIRR_OK;
+    case D_LSUFFIX:
+        set_label_mangle(LM_LSUFFIX, pragma->tail);
+        return DIRR_OK;
+    default:
+        return DIRR_UNKNOWN;
+    }
+}
+
+/*
+ * %pragma limit to set resource limits
+ */
+static enum directive_result limit_pragma(const struct pragma *pragma)
+{
+    return nasm_set_limit(pragma->opname, pragma->tail);
 }

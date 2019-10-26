@@ -1,6 +1,6 @@
 ;; --------------------------------------------------------------------------
 ;;
-;;   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+;;   Copyright 1996-2018 The NASM Authors - All Rights Reserved
 ;;   See the file AUTHORS included with the NASM distribution for
 ;;   the specific copyright holders.
 ;;
@@ -47,7 +47,9 @@
 ; subheaders in the NASM documentation.
 ;
 
-;# Special instructions...
+;# Special instructions (pseudo-ops)
+; These MUST be first in this file and must maintain the pattern of
+; Dx by size, RESx by size, and INCBIN in that order.
 DB		ignore				ignore						ignore
 DW		ignore				ignore						ignore
 DD		ignore				ignore						ignore
@@ -64,6 +66,7 @@ REST		ignore				ignore						ignore
 RESO		ignore				ignore						ignore
 RESY		ignore				ignore						ignore
 RESZ		ignore				ignore						ignore
+INCBIN		ignore				ignore						ignore
 
 ;# Conventional instructions
 AAA		void				[	37]					8086,NOLONG
@@ -652,7 +655,6 @@ INC		rm8				[m:	hle fe /0]				8086,LOCK
 INC		rm16				[m:	hle o16 ff /0]				8086,LOCK
 INC		rm32				[m:	hle o32 ff /0]				386,LOCK
 INC		rm64				[m:	hle o64 ff /0]				X64,LOCK
-INCBIN		ignore				ignore						ignore
 INSB		void				[	6c]					186
 INSD		void				[	o32 6d]					386
 INSW		void				[	o16 6d]					186
@@ -1127,6 +1129,24 @@ RETF		void				[	cb]					8086
 RETF		imm				[i:	ca iw]					8086,SW
 RETN		void				[	c3]					8086,BND
 RETN		imm				[i:	c2 iw]					8086,SW,BND
+RETW		void				[	o16 c3]					8086,BND
+RETW		imm				[i:	c2 iw]					8086,SW,BND
+RETFW		void				[	o16 cb]					8086
+RETFW		imm				[i:	o16 ca iw]				8086,SW
+RETNW		void				[	o16 c3]					8086,BND
+RETNW		imm				[i:	o16 c2 iw]				8086,SW,BND
+RETD		void				[	o32 c3]					8086,BND,NOLONG
+RETD		imm				[i:	o32 c2 iw]				8086,SW,BND,NOLONG
+RETFD		void				[	o32 cb]					8086
+RETFD		imm				[i:	o32 ca iw]				8086,SW
+RETND		void				[	o32 c3]					8086,BND,NOLONG
+RETND		imm				[i:	o32 c2 iw]				8086,SW,BND,NOLONG
+RETQ		void				[	o64nw c3]				X64,BND
+RETQ		imm				[i:	o64nw c2 iw]				X64,SW,BND
+RETFQ		void				[	o64 cb]					X64
+RETFQ		imm				[i:	o64 ca iw]				X64,SW
+RETNQ		void				[	o64nw c3]				X64,BND
+RETNQ		imm				[i:	o64nw c2 iw]				X64,SW,BND
 
 ROL		rm8,unity			[m-:	d0 /0]					8086
 ROL		rm8,reg_cl			[m-:	d2 /0]					8086
@@ -1375,7 +1395,10 @@ TEST		rm64,imm			[mi:	o64 f7 /0 id,s]				X64,SM
 TEST		mem,imm8			[mi:	f6 /0 ib]				8086,SM
 TEST		mem,imm16			[mi:	o16 f7 /0 iw]				8086,SM
 TEST		mem,imm32			[mi:	o32 f7 /0 id]				386,SM
-UD0		void				[	0f ff]					186
+UD0		void				[	0f ff]					186,OBSOLETE
+UD0		reg16,rm16			[rm:	o16 0f ff /r]				186
+UD0		reg32,rm32			[rm:	o32 0f ff /r]				186
+UD0		reg64,rm64			[rm:	o64 0f ff /r]				186
 UD1		reg,rm16			[rm:	o16 0f b9 /r]				186
 UD1		reg,rm32			[rm:	o32 0f b9 /r]				186
 UD1		reg,rm64			[rm:	o64 0f b9 /r]				186
@@ -1701,8 +1724,10 @@ PCMPGTB		xmmreg,xmmrm			[rm:	66 0f 64 /r]				WILLAMETTE,SSE2,SO
 PCMPGTW		xmmreg,xmmrm			[rm:	66 0f 65 /r]				WILLAMETTE,SSE2,SO
 PCMPGTD		xmmreg,xmmrm			[rm:	66 0f 66 /r]				WILLAMETTE,SSE2,SO
 PEXTRW		reg32,xmmreg,imm		[rmi:	66 0f c5 /r ib,u]			WILLAMETTE,SSE2,SB,AR2
+PEXTRW		reg64,xmmreg,imm		[rmi:	66 0f c5 /r ib,u]			X64,SSE2,SB,AR2,ND
 PINSRW		xmmreg,reg16,imm		[rmi:	66 0f c4 /r ib,u]			WILLAMETTE,SSE2,SB,AR2
 PINSRW		xmmreg,reg32,imm		[rmi:	66 0f c4 /r ib,u]			WILLAMETTE,SSE2,SB,AR2,ND
+PINSRW		xmmreg,reg64,imm		[rmi:	66 0f c4 /r ib,u]			X64,SSE2,SB,AR2,ND
 PINSRW		xmmreg,mem,imm			[rmi:	66 0f c4 /r ib,u]			WILLAMETTE,SSE2,SB,AR2
 PINSRW		xmmreg,mem16,imm		[rmi:	66 0f c4 /r ib,u]			WILLAMETTE,SSE2,SB,AR2
 PMADDWD		xmmreg,xmmrm			[rm:	66 0f f5 /r]				WILLAMETTE,SSE2,SO
@@ -1955,8 +1980,8 @@ PBLENDW		xmmreg,xmmrm,imm		[rmi:	66 0f 3a 0e /r ib,u]			SSE41
 PCMPEQQ		xmmreg,xmmrm			[rm:	66 0f 38 29 /r]				SSE41
 PEXTRB		reg32,xmmreg,imm		[mri:	66 0f 3a 14 /r ib,u]			SSE41
 PEXTRB		mem8,xmmreg,imm			[mri:	66 0f 3a 14 /r ib,u]			SSE41
-PEXTRB		reg64,xmmreg,imm		[mri:	o64 66 0f 3a 14 /r ib,u]		SSE41,X64
-PEXTRD		rm32,xmmreg,imm			[mri:	norexw 66 0f 3a 16 /r ib,u]			SSE41
+PEXTRB		reg64,xmmreg,imm		[mri:	o64nw 66 0f 3a 14 /r ib,u]		SSE41,X64
+PEXTRD		rm32,xmmreg,imm			[mri:	norexw 66 0f 3a 16 /r ib,u]		SSE41
 PEXTRQ		rm64,xmmreg,imm			[mri:	o64 66 0f 3a 16 /r ib,u]		SSE41,X64
 PEXTRW		reg32,xmmreg,imm		[mri:	66 0f 3a 15 /r ib,u]			SSE41
 PEXTRW		mem16,xmmreg,imm		[mri:	66 0f 3a 15 /r ib,u]			SSE41
@@ -1965,8 +1990,8 @@ PHMINPOSUW	xmmreg,xmmrm			[rm:	66 0f 38 41 /r]				SSE41
 PINSRB		xmmreg,mem,imm			[rmi:	66 0f 3a 20 /r ib,u]			SSE41,SB,AR2
 PINSRB		xmmreg,rm8,imm			[rmi:	nohi 66 0f 3a 20 /r ib,u]		SSE41,SB,AR2
 PINSRB		xmmreg,reg32,imm		[rmi:	66 0f 3a 20 /r ib,u]			SSE41,SB,AR2
-PINSRD		xmmreg,mem,imm			[rmi:	norexw 66 0f 3a 22 /r ib,u]			SSE41,SB,AR2
-PINSRD		xmmreg,rm32,imm			[rmi:	norexw 66 0f 3a 22 /r ib,u]			SSE41,SB,AR2
+PINSRD		xmmreg,mem,imm			[rmi:	norexw 66 0f 3a 22 /r ib,u]		SSE41,SB,AR2
+PINSRD		xmmreg,rm32,imm			[rmi:	norexw 66 0f 3a 22 /r ib,u]		SSE41,SB,AR2
 PINSRQ		xmmreg,mem,imm			[rmi:	o64 66 0f 3a 22 /r ib,u]		SSE41,X64,SB,AR2
 PINSRQ		xmmreg,rm64,imm			[rmi:	o64 66 0f 3a 22 /r ib,u]		SSE41,X64,SB,AR2
 PMAXSB		xmmreg,xmmrm			[rm:	66 0f 38 3c /r]				SSE41
@@ -2043,6 +2068,30 @@ VAESDEC		xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f38 de /r]		AVX,SANDYBRI
 VAESDECLAST	xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f38 df /r]		AVX,SANDYBRIDGE
 VAESIMC		xmmreg,xmmrm128			[rm:	vex.128.66.0f38 db /r]			AVX,SANDYBRIDGE
 VAESKEYGENASSIST xmmreg,xmmrm128,imm8		[rmi:	vex.128.66.0f3a df /r ib]		AVX,SANDYBRIDGE
+
+;# Intel instruction extension based on pub number 319433-030 dated October 2017
+
+; Intel VAES instructions
+VAESENC		ymmreg,ymmreg*,ymmrm256		[rvm:   vex.nds.256.66.0f38.wig dc /r]		VAES,FUTURE
+VAESENCLAST	ymmreg,ymmreg*,ymmrm256		[rvm:   vex.nds.256.66.0f38.wig dd /r]		VAES,FUTURE
+VAESDEC		ymmreg,ymmreg*,ymmrm256		[rvm:   vex.nds.256.66.0f38.wig de /r]		VAES,FUTURE
+VAESDECLAST	ymmreg,ymmreg*,ymmrm256		[rvm:   vex.nds.256.66.0f38.wig df /r]		VAES,FUTURE
+
+; Intel VAES + AVX512VL instructions
+VAESENC		xmmreg,xmmreg*,xmmrm128		[rvm:fv: evex.nds.128.66.0f38.wig dc /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESENC		ymmreg,ymmreg*,ymmrm256		[rvm:fv: evex.nds.256.66.0f38.wig dc /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESENCLAST	xmmreg,xmmreg*,xmmrm128		[rvm:fv: evex.nds.128.66.0f38.wig dd /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESENCLAST	ymmreg,ymmreg*,ymmrm256		[rvm:fv: evex.nds.256.66.0f38.wig dd /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESDEC		xmmreg,xmmreg*,xmmrm128		[rvm:fv: evex.nds.128.66.0f38.wig de /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESDEC		ymmreg,ymmreg*,ymmrm256		[rvm:fv: evex.nds.256.66.0f38.wig de /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESDECLAST	xmmreg,xmmreg*,xmmrm128		[rvm:fv: evex.nds.128.66.0f38.wig df /r]	AVX512VL,AVX512,VAES,FUTURE
+VAESDECLAST	ymmreg,ymmreg*,ymmrm256		[rvm:fv: evex.nds.256.66.0f38.wig df /r]	AVX512VL,AVX512,VAES,FUTURE
+
+; Intel VAES + AVX512F instructions
+VAESENC		zmmreg,zmmreg*,zmmrm512		[rvm:fv: evex.nds.512.66.0f38.wig dc /r]	AVX512,VAES,FUTURE
+VAESENCLAST	zmmreg,zmmreg*,zmmrm512		[rvm:fv: evex.nds.512.66.0f38.wig dd /r]	AVX512,VAES,FUTURE
+VAESDEC		zmmreg,zmmreg*,zmmrm512		[rvm:fv: evex.nds.512.66.0f38.wig de /r]	AVX512,VAES,FUTURE
+VAESDECLAST	zmmreg,zmmreg*,zmmrm512		[rvm:fv: evex.nds.512.66.0f38.wig df /r]	AVX512,VAES,FUTURE
 
 ;# Intel AVX instructions
 VADDPD		xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f 58 /r]		AVX,SANDYBRIDGE
@@ -2750,6 +2799,33 @@ VPCLMULHQLQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f3a 44 /r 01]		AVX,
 VPCLMULLQHQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f3a 44 /r 10]		AVX,SANDYBRIDGE
 VPCLMULHQHQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:	vex.nds.128.66.0f3a 44 /r 11]		AVX,SANDYBRIDGE
 VPCLMULQDQ	xmmreg,xmmreg*,xmmrm128,imm8	[rvmi:	vex.nds.128.66.0f3a 44 /r ib]		AVX,SANDYBRIDGE
+
+; Intel VPCLMULQDQ instructions
+VPCLMULLQLQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  vex.nds.256.66.0f3a.wig 44 /r 00]	VPCLMULQDQ,FUTURE
+VPCLMULHQLQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  vex.nds.256.66.0f3a.wig 44 /r 01]	VPCLMULQDQ,FUTURE
+VPCLMULLQHQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  vex.nds.256.66.0f3a.wig 44 /r 10]	VPCLMULQDQ,FUTURE
+VPCLMULHQHQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  vex.nds.256.66.0f3a.wig 44 /r 11]	VPCLMULQDQ,FUTURE
+VPCLMULQDQ	ymmreg,ymmreg*,ymmrm256,imm8	[rvmi:fv: vex.nds.256.66.0f3a.wig 44 /r ib]	VPCLMULQDQ,FUTURE
+
+; Intel VPCLMULQDQ + AVX512VL instructions
+VPCLMULLQLQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:fv:  evex.nds.128.66.0f3a.wig 44 /r 00]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULHQLQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:fv:  evex.nds.128.66.0f3a.wig 44 /r 01]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULLQHQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:fv:  evex.nds.128.66.0f3a.wig 44 /r 10]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULHQHQDQ	xmmreg,xmmreg*,xmmrm128		[rvm:fv:  evex.nds.128.66.0f3a.wig 44 /r 11]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULQDQ	xmmreg,xmmreg*,xmmrm128,imm8	[rvmi:fv: evex.nds.128.66.0f3a.wig 44 /r ib]	AVX512VL,VPCLMULQDQ,FUTURE
+
+VPCLMULLQLQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  evex.nds.256.66.0f3a.wig 44 /r 00]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULHQLQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  evex.nds.256.66.0f3a.wig 44 /r 01]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULLQHQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  evex.nds.256.66.0f3a.wig 44 /r 10]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULHQHQDQ	ymmreg,ymmreg*,ymmrm256		[rvm:fv:  evex.nds.256.66.0f3a.wig 44 /r 11]	AVX512VL,VPCLMULQDQ,FUTURE
+VPCLMULQDQ	ymmreg,ymmreg*,ymmrm256,imm8	[rvmi:fv: evex.nds.256.66.0f3a.wig 44 /r ib]	AVX512VL,VPCLMULQDQ,FUTURE
+
+; Intel VPCLMULQDQ + AVX512F instructions
+VPCLMULLQLQDQ	zmmreg,zmmreg*,zmmrm512		[rvm:fv:  evex.nds.512.66.0f3a.wig 44 /r 00]	AVX512,VPCLMULQDQ,FUTURE
+VPCLMULHQLQDQ	zmmreg,zmmreg*,zmmrm512		[rvm:fv:  evex.nds.512.66.0f3a.wig 44 /r 01]	AVX512,VPCLMULQDQ,FUTURE
+VPCLMULLQHQDQ	zmmreg,zmmreg*,zmmrm512		[rvm:fv:  evex.nds.512.66.0f3a.wig 44 /r 10]	AVX512,VPCLMULQDQ,FUTURE
+VPCLMULHQHQDQ	zmmreg,zmmreg*,zmmrm512		[rvm:fv:  evex.nds.512.66.0f3a.wig 44 /r 11]	AVX512,VPCLMULQDQ,FUTURE
+VPCLMULQDQ	zmmreg,zmmreg*,zmmrm512,imm8	[rvmi:fv: evex.nds.512.66.0f3a.wig 44 /r ib]	AVX512,VPCLMULQDQ,FUTURE
 
 ;# Intel Fused Multiply-Add instructions (FMA)
 VFMADD132PS	xmmreg,xmmreg,xmmrm128		[rvm:	vex.dds.128.66.0f38.w0 98 /r]		FMA,FUTURE
@@ -5120,6 +5196,159 @@ PCOMMIT         void                            [       66 0f ae f8]            
 
 ; AMD Zen v1
 CLZERO		void				[	0f 01 fc]				FUTURE,AMD
+CLZERO		reg_ax				[-:	a16 0f 01 fc]				FUTURE,AMD,ND,NOLONG
+CLZERO		reg_eax				[-:	a32 0f 01 fc]				FUTURE,AMD,ND
+CLZERO		reg_rax				[-:	a64 0f 01 fc]				FUTURE,AMD,ND,X64
+
+;# Processor trace write
+PTWRITE		rm32				[m:	np 0f ae /4]				FUTURE
+PTWRITE		rm64				[m:	o64 np 0f ae /4]			X64,FUTURE
+
+;# Instructions from the Intel Instruction Set Extensions,
+;# doc 319433-034 May 2018
+CLDEMOTE	mem				[m:	np 0f 1c /0]				FUTURE
+MOVDIRI		mem32,reg32			[mr:	np 0f 38 f9 /r]				FUTURE,SD
+MOVDIRI		mem64,reg64			[mr:	o64 0f 38 f9 /r]			FUTURE,X64,SQ
+MOVDIR64B	reg16,mem512			[rm:	a16 66 0f 38 f8 /r]			FUTURE,NOLONG
+MOVDIR64B	reg32,mem512			[rm:	a32 66 0f 38 f8 /r]			FUTURE
+MOVDIR64B	reg64,mem512			[rm:	a64 66 0f 38 f8 /r]			FUTURE,X64
+PCONFIG		void				[	np 0f 01 c5]				FUTURE
+TPAUSE		reg32				[m:	66 0f ae /6]				FUTURE
+TPAUSE		reg32,reg_edx,reg_eax		[m--:	66 0f ae /6]				FUTURE,ND
+UMONITOR	reg16				[m:	a16 f3 0f ae /6]			FUTURE,NOLONG
+UMONITOR	reg32				[m:	a32 f3 0f ae /6]			FUTURE
+UMONITOR	reg64				[m:	a64 f3 0f ae /6]			FUTURE,X64
+UMWAIT		reg32				[m:	f2 0f ae /6]				FUTURE
+UMWAIT		reg32,reg_edx,reg_eax		[m--:	f2 0f ae /6]				FUTURE,ND
+WBNOINVD	void				[	f3 0f 09]				FUTURE
+
+;# Galois field operations (GFNI)
+GF2P8AFFINEINVQB	xmmreg,xmmrm128,imm8			[rmi:	  66 0f 3a cf /r ib]			GFNI,SSE,FUTURE
+VGF2P8AFFINEINVQB	xmmreg,xmmreg*,xmmrm128,imm8		[rvmi:	  vex.nds.128.66.0f3a.w1 cf /r ib]	GFNI,AVX,FUTURE
+VGF2P8AFFINEINVQB	ymmreg,ymmreg*,ymmrm256,imm8		[rvmi:	  vex.nds.256.66.0f3a.w1 cf /r ib]	GFNI,AVX,FUTURE
+VGF2P8AFFINEINVQB	xmmreg|mask|z,xmmreg*,xmmrm128|b64,imm8	[rvmi:fv: evex.nds.128.66.0f3a.w1 cf /r ib]	GFNI,AVX512VL,FUTURE
+VGF2P8AFFINEINVQB	ymmreg|mask|z,ymmreg*,ymmrm256|b64,imm8	[rvmi:fv: evex.nds.256.66.0f3a.w1 cf /r ib]	GFNI,AVX512VL,FUTURE
+VGF2P8AFFINEINVQB	zmmreg|mask|z,zmmreg*,zmmrm512|b64,imm8	[rvmi:fv: evex.nds.512.66.0f3a.w1 cf /r ib]	GFNI,AVX512,FUTURE
+GF2P8AFFINEQB   	xmmreg,xmmrm128,imm8			[rmi:	  66 0f 3a ce /r ib]			GFNI,SSE,FUTURE
+VGF2P8AFFINEQB   	xmmreg,xmmreg*,xmmrm128,imm8		[rvmi:	  vex.nds.128.66.0f3a.w1 ce /r ib]	GFNI,AVX,FUTURE
+VGF2P8AFFINEQB   	ymmreg,ymmreg*,ymmrm256,imm8		[rvmi:	  vex.nds.256.66.0f3a.w1 ce /r ib]	GFNI,AVX,FUTURE
+VGF2P8AFFINEQB   	xmmreg|mask|z,xmmreg*,xmmrm128|b64,imm8	[rvmi:fv: evex.nds.128.66.0f3a.w1 ce /r ib]	GFNI,AVX512VL,FUTURE
+VGF2P8AFFINEQB   	ymmreg|mask|z,ymmreg*,ymmrm256|b64,imm8	[rvmi:fv: evex.nds.256.66.0f3a.w1 ce /r ib]	GFNI,AVX512VL,FUTURE
+VGF2P8AFFINEQB   	zmmreg|mask|z,zmmreg*,zmmrm512|b64,imm8	[rvmi:fv: evex.nds.512.66.0f3a.w1 ce /r ib]	GFNI,AVX512,FUTURE
+GF2P8MULB		xmmreg,xmmrm128				[rm:      66 0f 38 cf /r]			GFNI,SSE,FUTURE
+VGF2P8MULB		xmmreg,xmmreg*,xmmrm128			[rvm:     vex.nds.128.66.0f38.w0 cf /r]		GFNI,AVX,FUTURE
+VGF2P8MULB		ymmreg,ymmreg*,ymmrm256			[rvm:     vex.nds.256.66.0f38.w0 cf /r]		GFNI,AVX,FUTURE
+VGF2P8MULB		xmmreg|mask|z,xmmreg*,xmmrm128		[rvm:fvm: evex.nds.128.66.0f38.w0 cf /r]	GFNI,AVX512VL,FUTURE
+VGF2P8MULB		ymmreg|mask|z,ymmreg*,ymmrm256		[rvm:fvm: evex.nds.256.66.0f38.w0 cf /r]	GFNI,AVX512VL,FUTURE
+VGF2P8MULB		zmmreg|mask|z,zmmreg*,zmmrm512		[rvm:fvm: evex.nds.512.66.0f38.w0 cf /r]	GFNI,AVX512,FUTURE
+
+;# AVX512 Vector Bit Manipulation Instructions 2
+VPCOMPRESSB     mem128|mask,xmmreg                      [mr:t1s:   evex.128.66.0f38.w0 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSB     mem256|mask,ymmreg                      [mr:t1s:   evex.256.66.0f38.w0 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSB     mem512|mask,zmmreg                      [mr:t1s:   evex.512.66.0f38.w0 63 /r]		AVX512VBMI2,FUTURE
+VPCOMPRESSB     xmmreg|mask|z,xmmreg                    [mr:       evex.128.66.0f38.w0 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSB     ymmreg|mask|z,ymmreg                    [mr:       evex.256.66.0f38.w0 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSB     zmmreg|mask|z,zmmreg                    [mr:       evex.512.66.0f38.w0 63 /r]		AVX512VBMI2,FUTURE
+VPCOMPRESSW     mem128|mask,xmmreg                      [mr:t1s:   evex.128.66.0f38.w1 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSW     mem256|mask,ymmreg                      [mr:t1s:   evex.256.66.0f38.w1 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSW     mem512|mask,zmmreg                      [mr:t1s:   evex.512.66.0f38.w1 63 /r]		AVX512VBMI2,FUTURE
+VPCOMPRESSW     xmmreg|mask|z,xmmreg                    [mr:       evex.128.66.0f38.w1 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSW     ymmreg|mask|z,ymmreg                    [mr:       evex.256.66.0f38.w1 63 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPCOMPRESSW     zmmreg|mask|z,zmmreg                    [mr:       evex.512.66.0f38.w1 63 /r]		AVX512VBMI2,FUTURE
+VPEXPANDB       mem128|mask,xmmreg                      [mr:t1s:   evex.128.66.0f38.w0 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDB       mem256|mask,ymmreg                      [mr:t1s:   evex.256.66.0f38.w0 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDB       mem512|mask,zmmreg                      [mr:t1s:   evex.512.66.0f38.w0 62 /r]		AVX512VBMI2,FUTURE
+VPEXPANDB       xmmreg|mask|z,xmmreg                    [mr:       evex.128.66.0f38.w0 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDB       ymmreg|mask|z,ymmreg                    [mr:       evex.256.66.0f38.w0 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDB       zmmreg|mask|z,zmmreg                    [mr:       evex.512.66.0f38.w0 62 /r]		AVX512VBMI2,FUTURE
+VPEXPANDW       mem128|mask,xmmreg                      [mr:t1s:   evex.128.66.0f38.w1 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDW       mem256|mask,ymmreg                      [mr:t1s:   evex.256.66.0f38.w1 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDW       mem512|mask,zmmreg                      [mr:t1s:   evex.512.66.0f38.w1 62 /r]		AVX512VBMI2,FUTURE
+VPEXPANDW       xmmreg|mask|z,xmmreg                    [mr:       evex.128.66.0f38.w1 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDW       ymmreg|mask|z,ymmreg                    [mr:       evex.256.66.0f38.w1 62 /r]		AVX512VBMI2,AVX512VL,FUTURE
+VPEXPANDW       zmmreg|mask|z,zmmreg                    [mr:       evex.512.66.0f38.w1 62 /r]		AVX512VBMI2,FUTURE
+VPSHLDW		xmmreg|mask|z,xmmreg*,xmmrm128,imm8	[rvmi:fvm: evex.nds.128.66.0f3a.w1 70 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDW		ymmreg|mask|z,ymmreg*,ymmrm256,imm8	[rvmi:fvm: evex.nds.256.66.0f3a.w1 70 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDW		zmmreg|mask|z,zmmreg*,zmmrm512,imm8	[rvmi:fvm: evex.nds.512.66.0f3a.w1 70 /r ib]	AVX512VBMI2,FUTURE
+VPSHLDD		xmmreg|mask|z,xmmreg*,xmmrm128|b32,imm8	[rvmi:fv:  evex.nds.128.66.0f3a.w0 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDD		ymmreg|mask|z,ymmreg*,ymmrm256|b32,imm8	[rvmi:fv:  evex.nds.256.66.0f3a.w0 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDD		zmmreg|mask|z,zmmreg*,zmmrm512|b32,imm8	[rvmi:fv:  evex.nds.512.66.0f3a.w0 71 /r ib]	AVX512VBMI2,FUTURE
+VPSHLDQ		xmmreg|mask|z,xmmreg*,xmmrm128|b64,imm8	[rvmi:fv:  evex.nds.128.66.0f3a.w1 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDQ		ymmreg|mask|z,ymmreg*,ymmrm256|b64,imm8	[rvmi:fv:  evex.nds.256.66.0f3a.w1 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDQ		zmmreg|mask|z,zmmreg*,zmmrm512|b64,imm8	[rvmi:fv:  evex.nds.512.66.0f3a.w1 71 /r ib]	AVX512VBMI2,FUTURE
+VPSHLDVW	xmmreg|mask|z,xmmreg*,xmmrm128		[rvmi:fvm: evex.dds.128.66.0f38.w1 70 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVW	ymmreg|mask|z,ymmreg*,ymmrm256		[rvmi:fvm: evex.dds.256.66.0f38.w1 70 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVW	zmmreg|mask|z,zmmreg*,zmmrm512		[rvmi:fvm: evex.dds.512.66.0f38.w1 70 /r ib]	AVX512VBMI2,FUTURE
+VPSHLDVD	xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvmi:fv:  evex.dds.128.66.0f38.w0 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVD	ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvmi:fv:  evex.dds.256.66.0f38.w0 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVD	zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvmi:fv:  evex.dds.512.66.0f38.w0 71 /r ib]	AVX512VBMI2,FUTURE
+VPSHLDVQ	xmmreg|mask|z,xmmreg*,xmmrm128|b64	[rvmi:fv:  evex.dds.128.66.0f38.w1 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVQ	ymmreg|mask|z,ymmreg*,ymmrm256|b64	[rvmi:fv:  evex.dds.256.66.0f38.w1 71 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHLDVQ	zmmreg|mask|z,zmmreg*,zmmrm512|b64	[rvmi:fv:  evex.dds.512.66.0f38.w1 71 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDW		xmmreg|mask|z,xmmreg*,xmmrm128,imm8	[rvmi:fvm: evex.nds.128.66.0f3a.w1 72 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDW		ymmreg|mask|z,ymmreg*,ymmrm256,imm8	[rvmi:fvm: evex.nds.256.66.0f3a.w1 72 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDW		zmmreg|mask|z,zmmreg*,zmmrm512,imm8	[rvmi:fvm: evex.nds.512.66.0f3a.w1 72 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDD		xmmreg|mask|z,xmmreg*,xmmrm128|b32,imm8	[rvmi:fv:  evex.nds.128.66.0f3a.w0 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDD		ymmreg|mask|z,ymmreg*,ymmrm256|b32,imm8	[rvmi:fv:  evex.nds.256.66.0f3a.w0 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDD		zmmreg|mask|z,zmmreg*,zmmrm512|b32,imm8	[rvmi:fv:  evex.nds.512.66.0f3a.w0 73 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDQ		xmmreg|mask|z,xmmreg*,xmmrm128|b64,imm8	[rvmi:fv:  evex.nds.128.66.0f3a.w1 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDQ		ymmreg|mask|z,ymmreg*,ymmrm256|b64,imm8	[rvmi:fv:  evex.nds.256.66.0f3a.w1 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDQ		zmmreg|mask|z,zmmreg*,zmmrm512|b64,imm8	[rvmi:fv:  evex.nds.512.66.0f3a.w1 73 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDVW	xmmreg|mask|z,xmmreg*,xmmrm128    	[rvmi:fvm: evex.dds.128.66.0f38.w1 72 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVW	ymmreg|mask|z,ymmreg*,ymmrm256		[rvmi:fvm: evex.dds.256.66.0f38.w1 72 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVW	zmmreg|mask|z,zmmreg*,zmmrm512		[rvmi:fvm: evex.dds.512.66.0f38.w1 72 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDVD	xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvmi:fv:  evex.dds.128.66.0f38.w0 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVD	ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvmi:fv:  evex.dds.256.66.0f38.w0 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVD	zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvmi:fv:  evex.dds.512.66.0f38.w0 73 /r ib]	AVX512VBMI2,FUTURE
+VPSHRDVQ	xmmreg|mask|z,xmmreg*,xmmrm128|b64	[rvmi:fv:  evex.dds.128.66.0f38.w1 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVQ	ymmreg|mask|z,ymmreg*,ymmrm256|b64	[rvmi:fv:  evex.dds.256.66.0f38.w1 73 /r ib]	AVX512VBMI2,AVX512VL,FUTURE
+VPSHRDVQ	zmmreg|mask|z,zmmreg*,zmmrm512|b64	[rvmi:fv:  evex.dds.512.66.0f38.w1 73 /r ib]	AVX512VBMI2,FUTURE
+
+;# AVX512 VNNI
+VPDPBUSD		xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvm:fv:  evex.dds.128.66.0f38.w0 50 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPBUSD		ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvm:fv:  evex.dds.256.66.0f38.w0 50 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPBUSD		zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvm:fv:  evex.dds.512.66.0f38.w0 50 /r]	AVX512VNNI,FUTURE
+VPDPBUSDS		xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvm:fv:  evex.dds.128.66.0f38.w0 51 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPBUSDS		ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvm:fv:  evex.dds.256.66.0f38.w0 51 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPBUSDS		zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvm:fv:  evex.dds.512.66.0f38.w0 51 /r]	AVX512VNNI,FUTURE
+VPDPWSSD		xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvm:fv:  evex.dds.128.66.0f38.w0 52 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPWSSD		ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvm:fv:  evex.dds.256.66.0f38.w0 52 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPWSSD		zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvm:fv:  evex.dds.512.66.0f38.w0 52 /r]	AVX512VNNI,FUTURE
+VPDPWSSDS		xmmreg|mask|z,xmmreg*,xmmrm128|b32	[rvm:fv:  evex.dds.128.66.0f38.w0 53 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPWSSDS		ymmreg|mask|z,ymmreg*,ymmrm256|b32	[rvm:fv:  evex.dds.256.66.0f38.w0 53 /r]	AVX512VNNI,AVX512VL,FUTURE
+VPDPWSSDS		zmmreg|mask|z,zmmreg*,zmmrm512|b32	[rvm:fv:  evex.dds.512.66.0f38.w0 53 /r]	AVX512VNNI,FUTURE
+
+;# AVX512 Bit Algorithms
+VPOPCNTB		xmmreg|mask|z,xmmrm128			[rm:fvm:  evex.128.66.0f38.w0 54 /r]		AVX512BITALG,AVX512VL,FUTURE
+VPOPCNTB		ymmreg|mask|z,ymmrm256			[rm:fvm:  evex.256.66.0f38.w0 54 /r]		AVX512BITALG,AVX512VL,FUTURE
+VPOPCNTB		zmmreg|mask|z,zmmrm512			[rm:fvm:  evex.512.66.0f38.w0 54 /r]		AVX512BITALG,FUTURE
+VPOPCNTW		xmmreg|mask|z,xmmrm128			[rm:fvm:  evex.128.66.0f38.w1 54 /r]		AVX512BITALG,AVX512VL,FUTURE
+VPOPCNTW		ymmreg|mask|z,ymmrm256			[rm:fvm:  evex.256.66.0f38.w1 54 /r]		AVX512BITALG,AVX512VL,FUTURE
+VPOPCNTW		zmmreg|mask|z,zmmrm512			[rm:fvm:  evex.512.66.0f38.w1 54 /r]		AVX512BITALG,FUTURE
+VPOPCNTD		xmmreg|mask|z,xmmrm128			[rm:fv:   evex.128.66.0f38.w0 55 /r]		AVX512VPOPCNTDQ,AVX512VL,FUTURE
+VPOPCNTD		ymmreg|mask|z,ymmrm256			[rm:fv:   evex.256.66.0f38.w0 55 /r]		AVX512VPOPCNTDQ,AVX512VL,FUTURE
+VPOPCNTD		zmmreg|mask|z,zmmrm512			[rm:fv:   evex.512.66.0f38.w0 55 /r]		AVX512VPOPCNTDQ,FUTURE
+VPOPCNTQ		xmmreg|mask|z,xmmrm128			[rm:fv:   evex.128.66.0f38.w1 55 /r]		AVX512VPOPCNTDQ,AVX512VL,FUTURE
+VPOPCNTQ		ymmreg|mask|z,ymmrm256			[rm:fv:   evex.256.66.0f38.w1 55 /r]		AVX512VPOPCNTDQ,AVX512VL,FUTURE
+VPOPCNTQ		zmmreg|mask|z,zmmrm512			[rm:fv:   evex.512.66.0f38.w1 55 /r]		AVX512VPOPCNTDQ,FUTURE
+VPSHUFBITQMB		kreg|mask,xmmreg,xmmrm128		[rvm:fvm: evex.nds.128.66.0f38.w0 8f /r]	AVX512BITALG,AVX512VL,FUTURE
+VPSHUFBITQMB		kreg|mask,ymmreg,ymmrm256		[rvm:fvm: evex.nds.256.66.0f38.w0 8f /r]	AVX512BITALG,AVX512VL,FUTURE
+VPSHUFBITQMB		kreg|mask,zmmreg,zmmrm512		[rvm:fvm: evex.nds.512.66.0f38.w0 8f /r]	AVX512BITALG,FUTURE
+
+;# AVX512 4-iteration Multiply-Add
+V4FMADDPS		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.512.f2.0f38.w0 9a /r]	AVX5124FMAPS,FUTURE,SO
+V4FNMADDPS		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.512.f2.0f38.w0 aa /r]	AVX5124FMAPS,FUTURE,SO
+V4FMADDSS		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.lig.f2.0f38.w0 9b /r]	AVX5124FMAPS,FUTURE,SO
+V4FNMADDSS		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.lig.f2.0f38.w0 ab /r]	AVX5124FMAPS,FUTURE,SO
+
+;# AVX512 4-iteration Dot Product
+V4DPWSSDS		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.512.f2.0f38.w0 53 /r]	AVX5124VNNIW,FUTURE,SO
+V4DPWSSD		zmmreg|mask|z,zmmreg|rs4,mem		[rvm:m128:evex.dds.512.f2.0f38.w0 52 /r]	AVX5124VNNIW,FUTURE,SO
+
+;# Intel Software Guard Extensions (SGX)
+ENCLS			void					[         np 0f 01 cf]				SGX,FUTURE
+ENCLU			void					[ 	  np 0f 01 d7]				SGX,FUTURE
+ENCLV			void					[	  np 0f 01 c0]				SGX,FUTURE
 
 ;# Systematic names for the hinting nop instructions
 ; These should be last in the file

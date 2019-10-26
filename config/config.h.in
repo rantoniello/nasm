@@ -1,7 +1,116 @@
 /* config/config.h.in.  Generated from configure.ac by autoheader.  */
 
+/* Define to 1 to call abort() on panics (internal errors), for debugging. */
+#undef ABORT_ON_PANIC
+
 /* Define if building universal (internal helper macro) */
 #undef AC_APPLE_UNIVERSAL_BUILD
+
+/* Define to 1 if compiled with the `-fdata-sections' compiler flag */
+#undef CFLAG_FDATA_SECTIONS
+
+/* Define to 1 if compiled with the `-ffunction-sections' compiler flag */
+#undef CFLAG_FFUNCTION_SECTIONS
+
+/* Define to 1 if compiled with the `-fgnu89-inline' compiler flag */
+#undef CFLAG_FGNU89_INLINE
+
+/* Define to 1 if compiled with the `-flto' compiler flag */
+#undef CFLAG_FLTO
+
+/* Define to 1 if compiled with the `-fno-common' compiler flag */
+#undef CFLAG_FNO_COMMON
+
+/* Define to 1 if compiled with the `-fno-omit-frame-pointer' compiler flag */
+#undef CFLAG_FNO_OMIT_FRAME_POINTER
+
+/* Define to 1 if compiled with the `-fsanitize=address' compiler flag */
+#undef CFLAG_FSANITIZE_ADDRESS
+
+/* Define to 1 if compiled with the `-fsanitize=undefined' compiler flag */
+#undef CFLAG_FSANITIZE_UNDEFINED
+
+/* Define to 1 if compiled with the `-fvisibility=hidden' compiler flag */
+#undef CFLAG_FVISIBILITY_HIDDEN
+
+/* Define to 1 if compiled with the `-fwrapv' compiler flag */
+#undef CFLAG_FWRAPV
+
+/* Define to 1 if compiled with the `-ggdb3' compiler flag */
+#undef CFLAG_GGDB3
+
+/* Define to 1 if compiled with the `-pedantic' compiler flag */
+#undef CFLAG_PEDANTIC
+
+/* Define to 1 if compiled with the `-U__STRICT_ANSI__' compiler flag */
+#undef CFLAG_U_STRICT_ANSI
+
+/* Define to 1 if compiled with the `-W' compiler flag */
+#undef CFLAG_W
+
+/* Define to 1 if compiled with the `-Wall' compiler flag */
+#undef CFLAG_WALL
+
+/* Define to 1 if compiled with the `-Wc90-c99-compat' compiler flag */
+#undef CFLAG_WC90_C99_COMPAT
+
+/* Define to 1 if compiled with the `-Werror' compiler flag */
+#undef CFLAG_WERROR
+
+/* Define to 1 if compiled with the `-Werror=attributes' compiler flag */
+#undef CFLAG_WERROR_ATTRIBUTES
+
+/* Define to 1 if compiled with the `-Werror=comment' compiler flag */
+#undef CFLAG_WERROR_COMMENT
+
+/* Define to 1 if compiled with the `-Werror=implicit' compiler flag */
+#undef CFLAG_WERROR_IMPLICIT
+
+/* Define to 1 if compiled with the `-Werror=missing-braces' compiler flag */
+#undef CFLAG_WERROR_MISSING_BRACES
+
+/* Define to 1 if compiled with the `-Werror=missing-declarations' compiler
+   flag */
+#undef CFLAG_WERROR_MISSING_DECLARATIONS
+
+/* Define to 1 if compiled with the `-Werror=missing-prototypes' compiler flag
+   */
+#undef CFLAG_WERROR_MISSING_PROTOTYPES
+
+/* Define to 1 if compiled with the `-Werror=pointer-arith' compiler flag */
+#undef CFLAG_WERROR_POINTER_ARITH
+
+/* Define to 1 if compiled with the `-Werror=return-type' compiler flag */
+#undef CFLAG_WERROR_RETURN_TYPE
+
+/* Define to 1 if compiled with the `-Werror=strict-prototypes' compiler flag
+   */
+#undef CFLAG_WERROR_STRICT_PROTOTYPES
+
+/* Define to 1 if compiled with the `-Werror=trigraphs' compiler flag */
+#undef CFLAG_WERROR_TRIGRAPHS
+
+/* Define to 1 if compiled with the `-Werror=unknown-warning-option' compiler
+   flag */
+#undef CFLAG_WERROR_UNKNOWN_WARNING_OPTION
+
+/* Define to 1 if compiled with the `-Werror=vla' compiler flag */
+#undef CFLAG_WERROR_VLA
+
+/* Define to 1 if compiled with the `-Wlong-long' compiler flag */
+#undef CFLAG_WLONG_LONG
+
+/* Define to 1 if compiled with the `-Wl,--gc-sections' compiler flag */
+#undef CFLAG_WL_GC_SECTIONS
+
+/* Define to 1 if compiled with the `-Wpedantic-ms-format' compiler flag */
+#undef CFLAG_WPEDANTIC_MS_FORMAT
+
+/* Define to 1 if compiled with the `-Wshift-negative-value' compiler flag */
+#undef CFLAG_WSHIFT_NEGATIVE_VALUE
+
+/* Define to 1 if compiled with the `-Wstringop-truncation' compiler flag */
+#undef CFLAG_WSTRINGOP_TRUNCATION
 
 /* Define to 1 if you have the `access' function. */
 #undef HAVE_ACCESS
@@ -42,6 +151,10 @@
    don't. */
 #undef HAVE_DECL_STRNLEN
 
+/* Define to 1 if you have the declaration of `strrchrnul', and to 0 if you
+   don't. */
+#undef HAVE_DECL_STRRCHRNUL
+
 /* Define to 1 if you have the declaration of `strsep', and to 0 if you don't.
    */
 #undef HAVE_DECL_STRSEP
@@ -71,6 +184,9 @@
    functions */
 #undef HAVE_FUNC_ATTRIBUTE_ALLOC_SIZE
 
+/* Define to 1 if your compiler supports __attribute__((cold)) on functions */
+#undef HAVE_FUNC_ATTRIBUTE_COLD
+
 /* Define to 1 if your compiler supports __attribute__((const)) on functions
    */
 #undef HAVE_FUNC_ATTRIBUTE_CONST
@@ -97,6 +213,10 @@
 /* Define to 1 if your compiler supports __attribute__((returns_nonnull)) on
    functions */
 #undef HAVE_FUNC_ATTRIBUTE_RETURNS_NONNULL
+
+/* Define to 1 if your compiler supports __attribute__((sentinel)) on
+   functions */
+#undef HAVE_FUNC_ATTRIBUTE_SENTINEL
 
 /* Define to 1 if you have the `getgid' function. */
 #undef HAVE_GETGID
@@ -149,6 +269,9 @@
 /* Define to 1 if stdbool.h conforms to C99. */
 #undef HAVE_STDBOOL_H
 
+/* Define to 1 if your compiler supports C99 extern inline */
+#undef HAVE_STDC_INLINE
+
 /* Define to 1 if you have the <stdint.h> header file. */
 #undef HAVE_STDINT_H
 
@@ -181,6 +304,9 @@
 
 /* Define to 1 if you have the `strnlen' function. */
 #undef HAVE_STRNLEN
+
+/* Define to 1 if you have the `strrchrnul' function. */
+#undef HAVE_STRRCHRNUL
 
 /* Define to 1 if you have the `strsep' function. */
 #undef HAVE_STRSEP
@@ -295,6 +421,9 @@
 
 /* Define to 1 if you have the `__builtin_clzll' intrinsic function. */
 #undef HAVE___BUILTIN_CLZLL
+
+/* Define to 1 if you have the `__builtin_constant_p' intrinsic function. */
+#undef HAVE___BUILTIN_CONSTANT_P
 
 /* Define to 1 if you have the `__builtin_expect' intrinsic function. */
 #undef HAVE___BUILTIN_EXPECT

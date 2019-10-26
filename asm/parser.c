@@ -1,6 +1,6 @@
 /* ----------------------------------------------------------------------- *
  *
- *   Copyright 1996-2017 The NASM Authors - All Rights Reserved
+ *   Copyright 1996-2018 The NASM Authors - All Rights Reserved
  *   See the file AUTHORS included with the NASM distribution for
  *   the specific copyright holders.
  *
@@ -426,7 +426,7 @@ static int value_to_extop(expr * vect, extop *eop, int32_t myseg)
     return 0;
 }
 
-insn *parse_line(int pass, char *buffer, insn *result, ldfunc ldef)
+insn *parse_line(int pass, char *buffer, insn *result)
 {
     bool insn_is_label = false;
     struct eval_hints hints;
@@ -436,6 +436,8 @@ insn *parse_line(int pass, char *buffer, insn *result, ldfunc ldef)
     bool recover;
     int i;
 
+    nasm_static_assert(P_none == 0);
+
 restart_parse:
     first               = true;
     result->forw_ref    = false;
@@ -444,6 +446,8 @@ restart_parse:
     stdscan_set(buffer);
     i = stdscan(NULL, &tokval);
 
+    memset(result->prefixes, P_none, sizeof(result->prefixes));
+    result->times       = 1;    /* No TIMES either yet */
     result->label       = NULL; /* Assume no label */
     result->eops        = NULL; /* must do this, whatever happens */
     result->operands    = 0;    /* must initialize this */
@@ -471,7 +475,7 @@ restart_parse:
         if (i == ':') {         /* skip over the optional colon */
             i = stdscan(NULL, &tokval);
         } else if (i == 0) {
-            nasm_error(ERR_WARNING | ERR_WARN_OL | ERR_PASS1,
+            nasm_error(ERR_WARNING | WARN_OL | ERR_PASS1,
                   "label alone on a line without a colon might be in error");
         }
         if (i != TOKEN_INSN || tokval.t_integer != I_EQU) {
@@ -482,18 +486,15 @@ restart_parse:
              * Generally fix things. I think this is right as it is, but
              * am still not certain.
              */
-            ldef(result->label, in_absolute ? absolute.segment : location.segment,
-                 location.offset, NULL, true, false);
+            define_label(result->label,
+                         in_absolute ? absolute.segment : location.segment,
+                         location.offset, true);
         }
     }
 
     /* Just a label here */
     if (i == TOKEN_EOS)
         goto fail;
-
-    nasm_static_assert(P_none == 0);
-    memset(result->prefixes, P_none, sizeof(result->prefixes));
-    result->times = 1L;
 
     while (i == TOKEN_PREFIX ||
            (i == TOKEN_REG && IS_SREG(tokval.t_integer))) {
@@ -516,9 +517,8 @@ restart_parse:
                 result->times = 1L;
             } else {
                 result->times = value->value;
-                if (value->value < 0 && pass0 == 2) {
-                    nasm_error(ERR_NONFATAL, "TIMES value %"PRId64" is negative",
-                          value->value);
+                if (value->value < 0) {
+                    nasm_error(ERR_NONFATAL|ERR_PASS2, "TIMES value %"PRId64" is negative", value->value);
                     result->times = 0;
                 }
             }
@@ -581,11 +581,7 @@ restart_parse:
     } else
         critical = (pass == 2 ? 2 : 0);
 
-    if (result->opcode == I_DB || result->opcode == I_DW ||
-        result->opcode == I_DD || result->opcode == I_DQ ||
-        result->opcode == I_DT || result->opcode == I_DO ||
-        result->opcode == I_DY || result->opcode == I_DZ ||
-        result->opcode == I_INCBIN) {
+    if (opcode_is_db(result->opcode) || result->opcode == I_INCBIN) {
         extop *eop, **tail = &result->eops, **fixptr;
         int oper_num = 0;
         int32_t sign;
@@ -671,7 +667,7 @@ is_float:
                 eop->type = EOT_DB_STRING;
                 result->eops_float = true;
 
-                eop->stringlen = idata_bytes(result->opcode);
+                eop->stringlen = db_bytes(result->opcode);
                 if (eop->stringlen > 16) {
                     nasm_error(ERR_NONFATAL, "floating-point constant"
                                " encountered in DY or DZ instruction");
@@ -1032,7 +1028,7 @@ is_expression:
                 op->segment   = NO_SEG;   /* don't care again */
                 op->wrt       = NO_SEG;   /* still don't care */
 
-                if(optimizing >= 0 && !(op->type & STRICT)) {
+                if(optimizing.level >= 0 && !(op->type & STRICT)) {
                     /* Be optimistic */
                     op->type |=
                         UNITY | SBYTEWORD | SBYTEDWORD | UDWORD | SDWORD;
@@ -1049,7 +1045,7 @@ is_expression:
                 if (is_simple(value)) {
                     if (n == 1)
                         op->type |= UNITY;
-                    if (optimizing >= 0 && !(op->type & STRICT)) {
+                    if (optimizing.level >= 0 && !(op->type & STRICT)) {
                         if ((uint32_t) (n + 128) <= 255)
                             op->type |= SBYTEDWORD;
                         if ((uint16_t) (n + 128) <= 255)
@@ -1082,6 +1078,7 @@ is_expression:
                 }
             } else {            /* it's a register */
                 opflags_t rs;
+                uint64_t regset_size = 0;
 
                 if (value->type >= EXPR_SIMPLE || value->value != 1) {
                     nasm_error(ERR_NONFATAL, "invalid operand type");
@@ -1089,13 +1086,32 @@ is_expression:
                 }
 
                 /*
-                 * check that its only 1 register, not an expression...
+                 * We do not allow any kind of expression, except for
+                 * reg+value in which case it is a register set.
                  */
-                for (i = 1; value[i].type; i++)
-                    if (value[i].value) {
+                for (i = 1; value[i].type; i++) {
+                    if (!value[i].value)
+                        continue;
+
+                    switch (value[i].type) {
+                    case EXPR_SIMPLE:
+                        if (!regset_size) {
+                            regset_size = value[i].value + 1;
+                            break;
+                        }
+                        /* fallthrough */
+                    default:
                         nasm_error(ERR_NONFATAL, "invalid operand type");
                         goto fail;
                     }
+                }
+
+                if ((regset_size & (regset_size - 1)) ||
+                    regset_size >= (UINT64_C(1) << REGSET_BITS)) {
+                    nasm_error(ERR_NONFATAL | ERR_PASS2,
+                               "invalid register set size");
+                    regset_size = 0;
+                }
 
                 /* clear overrides, except TO which applies to FPU regs */
                 if (op->type & ~TO) {
@@ -1104,12 +1120,31 @@ is_expression:
                      * is different from the register size
                      */
                     rs = op->type & SIZE_MASK;
-                } else
+                } else {
                     rs = 0;
+                }
+
+                /*
+                 * Make sure we're not out of nasm_reg_flags, still
+                 * probably this should be fixed when we're defining
+                 * the label.
+                 *
+                 * An easy trigger is
+                 *
+                 *      e equ 0x80000000:0
+                 *      pshufw word e-0
+                 *
+                 */
+                if (value->type < EXPR_REG_START ||
+                    value->type > EXPR_REG_END) {
+                        nasm_error(ERR_NONFATAL, "invalid operand type");
+                        goto fail;
+                }
 
                 op->type      &= TO;
                 op->type      |= REGISTER;
                 op->type      |= nasm_reg_flags[value->type];
+                op->type      |= (regset_size >> 1) << REGSET_SHIFT;
                 op->decoflags |= brace_flags;
                 op->basereg   = value->type;
 
@@ -1133,37 +1168,11 @@ is_expression:
     /*
      * Transform RESW, RESD, RESQ, REST, RESO, RESY, RESZ into RESB.
      */
-    switch (result->opcode) {
-    case I_RESW:
+    if (opcode_is_resb(result->opcode)) {
+        result->oprs[0].offset *= resb_bytes(result->opcode);
+        result->oprs[0].offset *= result->times;
+        result->times = 1;
         result->opcode = I_RESB;
-        result->oprs[0].offset *= 2;
-        break;
-    case I_RESD:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 4;
-        break;
-    case I_RESQ:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 8;
-        break;
-    case I_REST:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 10;
-        break;
-    case I_RESO:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 16;
-        break;
-    case I_RESY:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 32;
-        break;
-    case I_RESZ:
-        result->opcode = I_RESB;
-        result->oprs[0].offset *= 64;
-        break;
-    default:
-        break;
     }
 
     return result;
